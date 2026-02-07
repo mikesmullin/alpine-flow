@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpine Flow — Demo</title>
+
+  <!-- Alpine Flow CSS -->
+  <link rel="stylesheet" href="./alpine-flow.css" />
+
+  <!-- Tailwind (CDN for demo) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    html, body { margin: 0; height: 100%; }
+    /* Tell Tailwind about our dark bg */
+    .alpine-flow { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100">
+
+  <!-- ── Toolbar ──────────────────────────────────────────── -->
+  <header class="fixed top-0 left-0 right-0 z-50 flex items-center gap-3 px-4 py-2 bg-gray-900/80 backdrop-blur border-b border-gray-800">
+    <h1 class="text-sm font-semibold tracking-wide text-blue-400">Alpine Flow</h1>
+    <span class="text-xs text-gray-500">v0.1.0</span>
+    <div class="flex-1"></div>
+    <button id="btn-add-node"
+      class="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 transition">+ Add Node</button>
+    <button id="btn-fit-view"
+      class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">Fit View</button>
+    <button id="btn-export"
+      class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">Export JSON</button>
+    <button id="btn-toggle-theme"
+      class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">🌓 Theme</button>
+  </header>
+
+  <!-- ── Flow Container ───────────────────────────────────── -->
+  <div id="flow-container"
+    class="w-full"
+    style="height: 100vh; padding-top: 42px;"
+    x-data="alpineFlow({
+      nodes: [
+        { id: '1', type: 'input',   position: { x: 50,  y: 50  }, data: { label: '📥 Data Source' } },
+        { id: '2', type: 'default', position: { x: 300, y: 50  }, data: { label: '⚙️ Transform' }, sourcePosition: 'right', targetPosition: 'left' },
+        { id: '3', type: 'default', position: { x: 300, y: 200 }, data: { label: '🔀 Router' } },
+        { id: '4', type: 'default', position: { x: 550, y: 0   }, data: { label: '📊 Analytics' }, targetPosition: 'left' },
+        { id: '5', type: 'default', position: { x: 550, y: 150 }, data: { label: '💾 Database' }, targetPosition: 'left' },
+        { id: '6', type: 'output',  position: { x: 550, y: 300 }, data: { label: '📤 API Output' }, targetPosition: 'left' },
+        { id: '7', type: 'default', position: { x: 50,  y: 300 }, data: { label: '🔔 Notifications' } },
+      ],
+      edges: [
+        { id: 'e1-2', source: '1', target: '2', animated: true },
+        { id: 'e1-3', source: '1', target: '3' },
+        { id: 'e2-4', source: '2', target: '4', label: 'metrics' },
+        { id: 'e3-5', source: '3', target: '5', type: 'smoothstep' },
+        { id: 'e3-6', source: '3', target: '6', type: 'smoothstep' },
+        { id: 'e7-6', source: '7', target: '6', type: 'straight', animated: true },
+      ],
+      options: {
+        fitView: true,
+        showMinimap: true,
+        showControls: true,
+        showBackground: true,
+        snapToGrid: false,
+        snapGrid: [20, 20],
+        background: { variant: 'dots', gap: 20, size: 1 },
+      },
+      onConnect(connection) {
+        console.log('🔗 Connected:', connection);
+        this.edges = [...this.edges, {
+          id: 'e' + connection.source + '-' + connection.target,
+          ...connection,
+        }];
+        this._initNodeLookup();
+        this._renderAllEdges();
+      },
+      onNodeClick(event, node) {
+        console.log('🖱️ Node clicked:', node?.id, node?.data?.label);
+      },
+      onEdgeClick(event, edge) {
+        console.log('🖱️ Edge clicked:', edge?.id);
+      },
+      onViewportChange(vp) {
+        // Could update a store / URL params / etc.
+      },
+      onInit(api) {
+        console.log('✅ Alpine Flow initialized', api);
+        window.__flow = api;
+      },
+    })">
+  </div>
+
+  <!-- ── Scripts ──────────────────────────────────────────── -->
+  <script type="module">
+    import Alpine from 'https://esm.sh/alpinejs@3.14.8';
+    import AlpineFlow from './src/index.js';
+
+    Alpine.plugin(AlpineFlow);
+
+    // Expose for toolbar buttons
+    window.Alpine = Alpine;
+
+    Alpine.start();
+
+    // ── Toolbar wiring ──
+    let nodeCounter = 8;
+
+    document.getElementById('btn-add-node').addEventListener('click', () => {
+      const el = document.getElementById('flow-container');
+      const data = Alpine.$data(el);
+      if (!data) return;
+      const id = String(nodeCounter++);
+      data.addNodes({
+        id,
+        type: 'default',
+        position: {
+          x: Math.random() * 400 + 100,
+          y: Math.random() * 400 + 50,
+        },
+        data: { label: `Node ${id}` },
+      });
+    });
+
+    document.getElementById('btn-fit-view').addEventListener('click', () => {
+      const el = document.getElementById('flow-container');
+      const data = Alpine.$data(el);
+      data?.fitView();
+    });
+
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const el = document.getElementById('flow-container');
+      const data = Alpine.$data(el);
+      if (!data) return;
+      const json = data.toJSON();
+      console.log('📦 Exported JSON:', json);
+      // Copy to clipboard
+      navigator.clipboard?.writeText(JSON.stringify(json, null, 2))
+        .then(() => alert('JSON copied to clipboard!'))
+        .catch(() => {
+          const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'alpine-flow-export.json';
+          a.click();
+        });
+    });
+
+    document.getElementById('btn-toggle-theme').addEventListener('click', () => {
+      const el = document.getElementById('flow-container');
+      el.classList.toggle('light');
+    });
+  </script>
+</body>
+</html>

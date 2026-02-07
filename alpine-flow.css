@@ -1,0 +1,365 @@
+/* ═══════════════════════════════════════════════════════════════
+   Alpine Flow — Core Styles
+   Required structural CSS for the graph editor.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── CSS Custom Properties (Theming) ────────────────────────── */
+:root {
+  --alpine-flow-bg: #1a1a2e;
+  --alpine-flow-bg-pattern-color: rgba(255, 255, 255, 0.06);
+  --alpine-flow-node-bg: #16213e;
+  --alpine-flow-node-border: #0f3460;
+  --alpine-flow-node-color: #e4e4e7;
+  --alpine-flow-node-border-radius: 8px;
+  --alpine-flow-node-box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+  --alpine-flow-node-selected-border: #4f8ff7;
+  --alpine-flow-node-selected-box-shadow: 0 0 0 2px rgba(79, 143, 247, 0.4), 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --alpine-flow-handle-bg: #4f8ff7;
+  --alpine-flow-handle-border: #1a1a2e;
+  --alpine-flow-handle-size: 10px;
+  --alpine-flow-edge-stroke: #4a5568;
+  --alpine-flow-edge-stroke-width: 2;
+  --alpine-flow-edge-selected-stroke: #4f8ff7;
+  --alpine-flow-edge-selected-stroke-width: 2.5;
+  --alpine-flow-controls-bg: #16213e;
+  --alpine-flow-controls-border: #0f3460;
+  --alpine-flow-controls-color: #e4e4e7;
+  --alpine-flow-controls-button-hover: #0f3460;
+  --alpine-flow-minimap-bg: rgba(22, 33, 62, 0.85);
+  --alpine-flow-minimap-border: #0f3460;
+  --alpine-flow-minimap-node: #4a5568;
+  --alpine-flow-minimap-node-selected: #4f8ff7;
+  --alpine-flow-selection-bg: rgba(79, 143, 247, 0.08);
+  --alpine-flow-selection-border: #4f8ff7;
+}
+
+/* ── Light Theme ────────────────────────────────────────────── */
+.alpine-flow.light {
+  --alpine-flow-bg: #f8fafc;
+  --alpine-flow-bg-pattern-color: rgba(0, 0, 0, 0.06);
+  --alpine-flow-node-bg: #ffffff;
+  --alpine-flow-node-border: #e2e8f0;
+  --alpine-flow-node-color: #1a202c;
+  --alpine-flow-node-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --alpine-flow-node-selected-box-shadow: 0 0 0 2px rgba(79, 143, 247, 0.4), 0 1px 3px rgba(0, 0, 0, 0.1);
+  --alpine-flow-handle-border: #ffffff;
+  --alpine-flow-edge-stroke: #b1b1b7;
+  --alpine-flow-controls-bg: #ffffff;
+  --alpine-flow-controls-border: #e2e8f0;
+  --alpine-flow-controls-color: #1a202c;
+  --alpine-flow-controls-button-hover: #f1f5f9;
+  --alpine-flow-minimap-bg: rgba(255, 255, 255, 0.9);
+  --alpine-flow-minimap-border: #e2e8f0;
+  --alpine-flow-minimap-node: #d1d5db;
+}
+
+/* ── Container ──────────────────────────────────────────────── */
+.alpine-flow {
+  position: relative;
+  overflow: hidden;
+  background: var(--alpine-flow-bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--alpine-flow-node-color);
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+
+/* ── Renderer / Pane ────────────────────────────────────────── */
+.alpine-flow__renderer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.alpine-flow__pane {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+
+.alpine-flow__pane:active {
+  cursor: grabbing;
+}
+
+/* ── Viewport ───────────────────────────────────────────────── */
+.alpine-flow__viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.alpine-flow__viewport > * {
+  pointer-events: all;
+}
+
+/* ── Nodes ──────────────────────────────────────────────────── */
+.alpine-flow__nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.alpine-flow__node {
+  position: absolute;
+  background: var(--alpine-flow-node-bg);
+  border: 1px solid var(--alpine-flow-node-border);
+  border-radius: var(--alpine-flow-node-border-radius);
+  padding: 10px 14px;
+  min-width: 120px;
+  box-shadow: var(--alpine-flow-node-box-shadow);
+  cursor: grab;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transform-origin: 0 0;
+}
+
+.alpine-flow__node:active,
+.alpine-flow__node.dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--alpine-flow-node-selected-border);
+  z-index: 1000 !important;
+}
+
+.alpine-flow__node.selected {
+  border-color: var(--alpine-flow-node-selected-border);
+  box-shadow: var(--alpine-flow-node-selected-box-shadow);
+}
+
+.alpine-flow__node.not-draggable {
+  cursor: default;
+}
+
+.alpine-flow__node-header {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.alpine-flow__group-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+/* ── Handles ────────────────────────────────────────────────── */
+.alpine-flow__handle {
+  position: absolute;
+  width: var(--alpine-flow-handle-size);
+  height: var(--alpine-flow-handle-size);
+  background: var(--alpine-flow-handle-bg);
+  border: 2px solid var(--alpine-flow-handle-border);
+  border-radius: 50%;
+  cursor: crosshair;
+  pointer-events: all;
+  z-index: 5;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.alpine-flow__handle:hover {
+  transform: translate(-50%, -50%) scale(1.4);
+  background: #6ba3ff;
+}
+
+.alpine-flow__handle-top {
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.alpine-flow__handle-bottom {
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 50%);
+}
+
+.alpine-flow__handle-left {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.alpine-flow__handle-right {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+/* ── Edges ──────────────────────────────────────────────────── */
+.alpine-flow__edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.alpine-flow__edge-group {
+  pointer-events: none;
+}
+
+.alpine-flow__edge-path {
+  stroke: var(--alpine-flow-edge-stroke);
+  stroke-width: var(--alpine-flow-edge-stroke-width);
+  fill: none;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.alpine-flow__edge.selected .alpine-flow__edge-path {
+  stroke: var(--alpine-flow-edge-selected-stroke);
+  stroke-width: var(--alpine-flow-edge-selected-stroke-width);
+}
+
+.alpine-flow__edge.animated .alpine-flow__edge-path {
+  stroke-dasharray: 5;
+  animation: alpine-flow-dashdraw 0.5s linear infinite;
+}
+
+@keyframes alpine-flow-dashdraw {
+  from { stroke-dashoffset: 10; }
+  to { stroke-dashoffset: 0; }
+}
+
+.alpine-flow__edge-interaction {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* ── Edge Labels ────────────────────────────────────────────── */
+.alpine-flow__edge-label-container {
+  overflow: visible;
+  pointer-events: all;
+}
+
+.alpine-flow__edge-label {
+  position: absolute;
+  background: var(--alpine-flow-node-bg);
+  border: 1px solid var(--alpine-flow-node-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: all;
+  transform: translate(-50%, -50%);
+  left: 50%;
+  top: 50%;
+}
+
+/* ── Connection Line ────────────────────────────────────────── */
+.alpine-flow__connection-line {
+  pointer-events: none;
+  overflow: visible;
+}
+
+.alpine-flow__connection-path {
+  stroke-dasharray: 5 5;
+  animation: alpine-flow-dashdraw 0.5s linear infinite;
+}
+
+/* ── Selection Box ──────────────────────────────────────────── */
+.alpine-flow__selection-box {
+  background: var(--alpine-flow-selection-bg);
+  border: 1px dashed var(--alpine-flow-selection-border);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* ── Background ─────────────────────────────────────────────── */
+.alpine-flow__background {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ── Panels ─────────────────────────────────────────────────── */
+.alpine-flow__panel {
+  position: absolute;
+  z-index: 5;
+  margin: 10px;
+}
+
+.alpine-flow__panel.top-left { top: 0; left: 0; }
+.alpine-flow__panel.top-right { top: 0; right: 0; }
+.alpine-flow__panel.top-center { top: 0; left: 50%; transform: translateX(-50%); }
+.alpine-flow__panel.bottom-left { bottom: 0; left: 0; }
+.alpine-flow__panel.bottom-right { bottom: 0; right: 0; }
+.alpine-flow__panel.bottom-center { bottom: 0; left: 50%; transform: translateX(-50%); }
+
+/* ── Controls ───────────────────────────────────────────────── */
+.alpine-flow__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--alpine-flow-controls-bg);
+  border: 1px solid var(--alpine-flow-controls-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.alpine-flow__controls-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--alpine-flow-controls-color);
+  transition: background 0.15s ease;
+  padding: 0;
+}
+
+.alpine-flow__controls-button:hover {
+  background: var(--alpine-flow-controls-button-hover);
+}
+
+.alpine-flow__controls-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.alpine-flow__controls-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Minimap ────────────────────────────────────────────────── */
+.alpine-flow__minimap {
+  background: var(--alpine-flow-minimap-bg);
+  border: 1px solid var(--alpine-flow-minimap-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.alpine-flow__minimap-svg {
+  display: block;
+  border-radius: 4px;
+}
+
+.alpine-flow__minimap-node {
+  opacity: 0.8;
+}
+
+.alpine-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.25);
+}
+
+/* ── Utilities ──────────────────────────────────────────────── */
+.nodrag { cursor: default !important; }
+.nowheel { /* marker class */ }
+.nopan { /* marker class */ }

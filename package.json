@@ -1,0 +1,46 @@
+{
+  "name": "alpine-flow",
+  "version": "0.1.0",
+  "description": "A high-performance graph/node editor for Alpine.js — inspired by React Flow",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./css": "./alpine-flow.css",
+    "./geometry": "./src/geometry.js",
+    "./edges": "./src/edges.js",
+    "./graph": "./src/graph.js",
+    "./handles": "./src/handles.js",
+    "./nodes": "./src/nodes.js",
+    "./viewport": "./src/viewport.js",
+    "./background": "./src/background.js",
+    "./controls": "./src/controls.js",
+    "./minimap": "./src/minimap.js"
+  },
+  "files": [
+    "src/",
+    "alpine-flow.css"
+  ],
+  "keywords": [
+    "alpine",
+    "alpinejs",
+    "flow",
+    "graph",
+    "node-editor",
+    "diagram",
+    "workflow",
+    "canvas",
+    "drag",
+    "interactive"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "peerDependencies": {
+    "alpinejs": ">=3.0.0"
+  }
+}
