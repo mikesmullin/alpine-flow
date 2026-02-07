@@ -329,6 +329,7 @@ export default function AlpineFlow(Alpine) {
         toJSON: () => this.toJSON(),
         fromJSON: (json) => this.fromJSON(json),
         layoutNodes: (opts) => this.layoutNodesAndRender(opts),
+        setPrecedence: (str) => this.setPrecedence(str),
       };
     },
 
@@ -348,6 +349,34 @@ export default function AlpineFlow(Alpine) {
       const rules = parsePrecedence(this.options.precedence);
       if (!rules) return;
       applyPrecedence(this.nodes, this.edges, rules);
+    },
+
+    /**
+     * Set or clear the precedence filter at runtime.
+     * Handles clearing old flags, applying new ones, re-laying out, and re-rendering.
+     * @param {string|null} str — precedence DSL string, or null/empty to clear
+     */
+    setPrecedence(str) {
+      // 1. Undo any previous precedence hiding
+      clearPrecedence(this.nodes, this.edges);
+
+      // 2. Store new value
+      this.options.precedence = str || null;
+
+      // 3. Apply new precedence (if any)
+      this._applyPrecedence();
+
+      // 4. Re-layout if autoLayout is on (now with updated visibility)
+      if (this.options.autoLayout) {
+        this._applyAutoLayout();
+      }
+
+      // 5. Re-render everything
+      this._initNodeLookup();
+      this._renderAllNodes();
+      this._renderAllEdges();
+      this._minimapComponent?.update();
+      this._controlsComponent?.update();
     },
 
     // ──────────────────────────────────────────
@@ -1004,7 +1033,19 @@ export default function AlpineFlow(Alpine) {
       }
 
       for (const edge of this.edges) {
-        if (edge.hidden) continue;
+        if (edge.hidden) {
+          // Remove existing DOM elements for hidden edges
+          const existing = this._edgeElements.get(edge.id);
+          if (existing) {
+            existing.remove();
+            this._edgeElements.delete(edge.id);
+            this._edgeInteractionElements.get(edge.id)?.remove();
+            this._edgeInteractionElements.delete(edge.id);
+            this._edgeLabelElements.get(edge.id)?.remove();
+            this._edgeLabelElements.delete(edge.id);
+          }
+          continue;
+        }
         this._renderEdge(edge);
       }
     },
@@ -1404,6 +1445,14 @@ function normalizeEdge(edge) {
     interactionWidth: edge.interactionWidth || 20,
   };
 }
+
+// ─── Static helpers on default export ────────────────────────
+// So consumers can do: AlpineFlow.parsePrecedence(...) with just the default import
+AlpineFlow.parsePrecedence = parsePrecedence;
+AlpineFlow.applyPrecedence = applyPrecedence;
+AlpineFlow.clearPrecedence = clearPrecedence;
+AlpineFlow.layoutNodes = layoutNodes;
+AlpineFlow.LAYOUT_DEFAULTS = LAYOUT_DEFAULTS;
 
 // ─── Named Exports (for advanced usage) ─────────────────────
 
