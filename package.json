@@ -17,7 +17,8 @@
     "./background": "./src/background.js",
     "./controls": "./src/controls.js",
     "./minimap": "./src/minimap.js",
-    "./layout": "./src/layout.js"
+    "./layout": "./src/layout.js",
+    "./precedence": "./src/precedence.js"
   },
   "files": [
     "src/",

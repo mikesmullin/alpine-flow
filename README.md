@@ -167,6 +167,9 @@ alpineFlow({
     // Auto Layout
     autoLayout: false,         // true | object (see Auto Layout section)
 
+    // Precedence (graph pre-filter for cyclical graphs)
+    precedence: null,          // string DSL e.g. "A > B & C > D" (see Precedence section)
+
     // Validation
     isValidConnection: null,   // (connection) => boolean
   },
@@ -424,6 +427,94 @@ For more advanced layout needs (e.g., elk, dagre), you can import `layoutNodes` 
 import { layoutNodes } from 'alpine-flow/layout';
 
 const positioned = layoutNodes(myNodes, myEdges, { direction: 'LR' });
+```
+
+---
+
+## Precedence (Graph Pre-Filter)
+
+Real-world graphs often contain cycles (e.g. **A → B → C → A**). Cycles make
+hierarchical layout impossible and can clutter the view. The `precedence` option
+lets you declare a **type-level ordering** that:
+
+1. **Hides** nodes whose type is not mentioned in the string
+2. **Hides** edges that flow *against* the declared ordering (breaking cycles)
+
+Precedence is a **pre-filter** — it applies regardless of whether `autoLayout`
+is enabled. Think of it as deciding *what to show*, while `autoLayout` decides
+*where to place things*.
+
+### Syntax
+
+```
+"A > B > C"            A has higher precedence than B, B higher than C
+"A > B & C"            A higher than both B and C (B, C are peers)
+"A > B & C > D"        A → {B, C} → D
+"A > B; C > D"         Two independent chains, combined
+"A > B > C; A > D > C" Diamond: A → B → C and A → D → C
+```
+
+| Token | Meaning |
+|-------|---------|
+| `>`   | Left side has higher precedence than right side |
+| `&`   | Multiple types at the **same** precedence level |
+| `;`   | Separate independent chains (all are merged) |
+
+### Quick example
+
+```js
+// Cyclical graph: Server → Cache → Database → Server
+{
+  nodes: [
+    { id: '1', type: 'Server',   data: { label: 'Web Server' } },
+    { id: '2', type: 'Cache',    data: { label: 'Redis' } },
+    { id: '3', type: 'Database', data: { label: 'Postgres' } },
+  ],
+  edges: [
+    { source: '1', target: '2' },  // Server → Cache        ✓ kept
+    { source: '2', target: '3' },  // Cache → Database      ✓ kept
+    { source: '3', target: '1' },  // Database → Server     ✗ hidden (backwards)
+  ],
+  options: {
+    precedence: 'Server > Cache > Database',
+    autoLayout: true,   // optional — precedence works without it too
+  },
+}
+```
+
+The cycle-breaking edge **Database → Server** is automatically hidden because
+`Database` has lower precedence than `Server`. The remaining graph is a clean
+DAG that layouts perfectly.
+
+### Filtering by type
+
+Only types mentioned in the precedence string are visible. If your graph has
+nodes of types `Server`, `Cache`, `Database`, and `Logger`, and the precedence
+is `"Server > Cache > Database"`, all `Logger` nodes (and their edges) are
+automatically hidden.
+
+### Precedence without auto-layout
+
+Precedence and layout are orthogonal:
+
+```js
+options: {
+  precedence: 'Server > Cache > Database',
+  autoLayout: false,   // you position nodes manually; precedence just filters
+}
+```
+
+### Standalone usage
+
+```js
+import { parsePrecedence, applyPrecedence } from 'alpine-flow/precedence';
+
+const rules = parsePrecedence('A > B & C > D');
+// rules.types  → Set { 'A', 'B', 'C', 'D' }
+// rules.ranks  → Map { 'A' → 0, 'B' → 1, 'C' → 1, 'D' → 2 }
+
+applyPrecedence(myNodes, myEdges, rules);
+// nodes/edges mutated: hidden flags set on filtered-out items
 ```
 
 ---

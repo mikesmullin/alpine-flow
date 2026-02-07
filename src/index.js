@@ -19,6 +19,7 @@ import { createBackground } from './background.js';
 import { createControls } from './controls.js';
 import { createMinimap } from './minimap.js';
 import { layoutNodes, LAYOUT_DEFAULTS } from './layout.js';
+import { parsePrecedence, applyPrecedence, clearPrecedence } from './precedence.js';
 
 /**
  * Alpine.js Plugin
@@ -74,6 +75,7 @@ export default function AlpineFlow(Alpine) {
       showMinimap: false,
       isValidConnection: null,
       autoLayout: false,           // true | { direction, nodeSpacing, rankSpacing, ... }
+      precedence: null,              // string DSL e.g. "A > B & C > D"
       ...config.options,
     },
 
@@ -137,6 +139,7 @@ export default function AlpineFlow(Alpine) {
 
       this._buildDOM();
       this._updateContainerDimensions();
+      this._applyPrecedence();
       this._applyAutoLayout();
       this._initNodeLookup();
       this._initPanZoom();
@@ -338,12 +341,33 @@ export default function AlpineFlow(Alpine) {
     },
 
     // ──────────────────────────────────────────
+    // Precedence Pre-Filter
+    // ──────────────────────────────────────────
+    _applyPrecedence() {
+      if (!this.options.precedence) return;
+      const rules = parsePrecedence(this.options.precedence);
+      if (!rules) return;
+      applyPrecedence(this.nodes, this.edges, rules);
+    },
+
+    // ──────────────────────────────────────────
     // Auto Layout
     // ──────────────────────────────────────────
     _applyAutoLayout() {
       if (!this.options.autoLayout) return;
       const opts = typeof this.options.autoLayout === 'object' ? this.options.autoLayout : {};
-      this.nodes = layoutNodes(this.nodes, this.edges, opts);
+
+      // Only layout visible nodes/edges (precedence may have hidden some)
+      const visibleNodes = this.nodes.filter((n) => !n.hidden);
+      const visibleEdges = this.edges.filter((e) => !e.hidden);
+      const laid = layoutNodes(visibleNodes, visibleEdges, opts);
+
+      // Merge computed positions back into the full array
+      const posMap = new Map(laid.map((n) => [n.id, n.position]));
+      this.nodes = this.nodes.map((n) => {
+        const pos = posMap.get(n.id);
+        return pos ? { ...n, position: pos } : n;
+      });
     },
 
     // ──────────────────────────────────────────
@@ -1294,7 +1318,15 @@ export default function AlpineFlow(Alpine) {
         this.nodes = this.nodes.map((n) => ({ ...n, _needsLayout: true }));
       }
 
-      this.nodes = layoutNodes(this.nodes, this.edges, layoutOpts);
+      // Only layout visible nodes/edges (precedence may have hidden some)
+      const visibleNodes = this.nodes.filter((n) => !n.hidden);
+      const visibleEdges = this.edges.filter((e) => !e.hidden);
+      const laid = layoutNodes(visibleNodes, visibleEdges, layoutOpts);
+      const posMap = new Map(laid.map((n) => [n.id, n.position]));
+      this.nodes = this.nodes.map((n) => {
+        const pos = posMap.get(n.id);
+        return pos ? { ...n, position: pos } : n;
+      });
 
       // Clean up flags
       this.nodes = this.nodes.map((n) => {
@@ -1394,4 +1426,6 @@ export {
   getHandlePosition, getEdgePosition,
   // Layout
   layoutNodes, LAYOUT_DEFAULTS,
+  // Precedence
+  parsePrecedence, applyPrecedence, clearPrecedence,
 };
