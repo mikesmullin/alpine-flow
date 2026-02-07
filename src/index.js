@@ -216,9 +216,13 @@ export default function AlpineFlow(Alpine) {
       }, pane);
 
       // Edges SVG container (below nodes)
+      // Use explicit large dimensions instead of 100% to avoid 0-size parent issues
+      // The SVG coordinate space matches the flow coordinate space (nodes at positive x,y)
       this._edgesSvgEl = createSvgElement('svg', {
         class: 'alpine-flow__edges',
-        style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' },
+        style: { position: 'absolute', top: '0', left: '0', overflow: 'visible', pointerEvents: 'none' },
+        width: '10000',
+        height: '10000',
       }, this._viewportEl);
 
       // SVG defs for markers
@@ -230,7 +234,9 @@ export default function AlpineFlow(Alpine) {
       // Connection line SVG
       this._connectionLineSvgEl = createSvgElement('svg', {
         class: 'alpine-flow__connection-line',
-        style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' },
+        style: { position: 'absolute', top: '0', left: '0', overflow: 'visible', pointerEvents: 'none' },
+        width: '10000',
+        height: '10000',
       }, this._viewportEl);
       this._connectionPathEl = createSvgElement('path', {
         class: 'alpine-flow__connection-path',
