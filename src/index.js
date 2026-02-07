@@ -18,6 +18,7 @@ import { getIncomers, getOutgoers, getConnectedEdges, addEdge, reconnectEdge, ap
 import { createBackground } from './background.js';
 import { createControls } from './controls.js';
 import { createMinimap } from './minimap.js';
+import { layoutNodes, LAYOUT_DEFAULTS } from './layout.js';
 
 /**
  * Alpine.js Plugin
@@ -72,6 +73,7 @@ export default function AlpineFlow(Alpine) {
       showControls: true,
       showMinimap: false,
       isValidConnection: null,
+      autoLayout: false,           // true | { direction, nodeSpacing, rankSpacing, ... }
       ...config.options,
     },
 
@@ -135,6 +137,7 @@ export default function AlpineFlow(Alpine) {
 
       this._buildDOM();
       this._updateContainerDimensions();
+      this._applyAutoLayout();
       this._initNodeLookup();
       this._initPanZoom();
       this._initNodeDrag();
@@ -322,6 +325,7 @@ export default function AlpineFlow(Alpine) {
         deleteElements: (els) => this.deleteSelectedElements(els),
         toJSON: () => this.toJSON(),
         fromJSON: (json) => this.fromJSON(json),
+        layoutNodes: (opts) => this.layoutNodesAndRender(opts),
       };
     },
 
@@ -331,6 +335,15 @@ export default function AlpineFlow(Alpine) {
     _updateContainerDimensions() {
       this._containerWidth = this._containerEl.clientWidth;
       this._containerHeight = this._containerEl.clientHeight;
+    },
+
+    // ──────────────────────────────────────────
+    // Auto Layout
+    // ──────────────────────────────────────────
+    _applyAutoLayout() {
+      if (!this.options.autoLayout) return;
+      const opts = typeof this.options.autoLayout === 'object' ? this.options.autoLayout : {};
+      this.nodes = layoutNodes(this.nodes, this.edges, opts);
     },
 
     // ──────────────────────────────────────────
@@ -1269,16 +1282,45 @@ export default function AlpineFlow(Alpine) {
       this._minimapComponent?.update();
       this._controlsComponent?.update();
     },
+
+    layoutNodesAndRender(opts = {}) {
+      // Force all nodes through layout (ignore existing positions)
+      const forceAll = opts.force === true;
+      const layoutOpts = { ...opts };
+      delete layoutOpts.force;
+
+      if (forceAll) {
+        // Temporarily mark all nodes as needing layout
+        this.nodes = this.nodes.map((n) => ({ ...n, _needsLayout: true }));
+      }
+
+      this.nodes = layoutNodes(this.nodes, this.edges, layoutOpts);
+
+      // Clean up flags
+      this.nodes = this.nodes.map((n) => {
+        const { _needsLayout, ...rest } = n;
+        return rest;
+      });
+
+      this._initNodeLookup();
+      this._renderAllNodes();
+      this._renderAllEdges();
+      this._minimapComponent?.update();
+      requestAnimationFrame(() => this.fitView());
+    },
   }));
 }
 
 // ─── Normalization Helpers ───────────────────────────────────
 
 function normalizeNode(node) {
+  const hasPosition = node.position != null &&
+    (node.position.x !== undefined || node.position.y !== undefined);
   return {
     id: node.id,
     type: node.type || 'default',
-    position: node.position ? { ...node.position } : { x: 0, y: 0 },
+    position: hasPosition ? { ...node.position } : { x: 0, y: 0 },
+    _needsLayout: node._needsLayout ?? !hasPosition,
     data: node.data || {},
     style: node.style || {},
     className: node.className || '',
@@ -1350,4 +1392,6 @@ export {
   deleteElements, isNode, isEdge,
   // Handle Utilities
   getHandlePosition, getEdgePosition,
+  // Layout
+  layoutNodes, LAYOUT_DEFAULTS,
 };

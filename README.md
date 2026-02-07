@@ -15,6 +15,7 @@ A high-performance, drop-in graph/node editor for [Alpine.js](https://alpinejs.d
 - **Keyboard shortcuts** — delete, select-all, arrow-key nudge, escape to deselect
 - **Selection box** — shift-drag to marquee-select multiple nodes
 - **JSON export/import** — serialize the entire graph state and restore it
+- **Auto-layout** — built-in hierarchical layout (Sugiyama-style) for nodes without explicit positions; manually-positioned nodes are preserved
 - **Themeable** — dark mode by default, light mode via CSS class, full CSS custom property override
 - **Tiny footprint** — no dependencies beyond Alpine.js; pure ES6 modules, no bundler needed
 - **Performance-first** — direct DOM mutation during drag (bypasses reactive diffing), `ResizeObserver` for node measurement, `requestAnimationFrame` auto-pan loop
@@ -163,6 +164,9 @@ alpineFlow({
     showControls: true,
     showMinimap: false,
 
+    // Auto Layout
+    autoLayout: false,         // true | object (see Auto Layout section)
+
     // Validation
     isValidConnection: null,   // (connection) => boolean
   },
@@ -292,6 +296,7 @@ The `onInit` callback receives an API object. You can also get it any time via `
 | `getConnectedEdges(nodeOrNodes)` | Get all edges touching the given node(s) |
 | `toJSON()` | Serialize the graph to a plain object `{ nodes, edges, viewport }` |
 | `fromJSON(json)` | Restore graph state from a `toJSON()` object |
+| `layoutNodes(options?)` | Run auto-layout on all nodes. Options: `{ direction, nodeSpacing, rankSpacing, force }`. Pass `force: true` to re-layout even nodes that have positions |
 | `toggleInteractivity()` | Toggle dragging, connecting, and selection on/off |
 
 ---
@@ -330,6 +335,96 @@ alpineFlow({
 | `default` | Source handle (bottom) + target handle (top) + label |
 | `input` | Source handle only (no target) — entry point |
 | `output` | Target handle only (no source) — exit point |
+
+---
+
+## Auto Layout
+
+Alpine Flow includes a built-in hierarchical layout algorithm (Sugiyama-style). It computes clean, readable positions for graph nodes based on the edge topology — no external dependencies required.
+
+### Key behavior: explicit positions always win
+
+When `autoLayout` is enabled, it only assigns positions to **nodes that don't already have one**. If a node provides `position: { x, y }`, that position is used as-is. This means:
+
+1. On first render with `autoLayout: true`, nodes without `position` get laid out automatically
+2. Users drag nodes to new positions → those positions are now explicit
+3. You call `toJSON()` and save — every node now has an `x,y`
+4. On next load, even with `autoLayout: true`, no nodes are moved because they all have positions
+
+This is ideal for an **edit-then-save** workflow.
+
+### Enable on init
+
+```js
+alpineFlow({
+  nodes: [
+    { id: '1', data: { label: 'Start' } },          // ← no position → auto-laid-out
+    { id: '2', data: { label: 'Process' } },         // ← no position → auto-laid-out
+    { id: '3', position: { x: 500, y: 0 }, data: { label: 'Pinned' } },  // ← has position → stays put
+  ],
+  edges: [
+    { id: 'e1-2', source: '1', target: '2' },
+    { id: 'e2-3', source: '2', target: '3' },
+  ],
+  options: {
+    autoLayout: true,    // use defaults (TB direction, 50px spacing)
+    fitView: true,
+  },
+})
+```
+
+### Layout options
+
+Pass an object instead of `true` for fine control:
+
+```js
+options: {
+  autoLayout: {
+    direction: 'LR',      // 'TB' (top→bottom) | 'LR' (left→right) | 'BT' | 'RL'
+    nodeSpacing: 60,      // gap between nodes in the same rank (default: 50)
+    rankSpacing: 120,     // gap between ranks/layers (default: 100)
+    nodeWidth: 172,       // fallback node width if not yet measured (default: 172)
+    nodeHeight: 36,       // fallback node height (default: 36)
+    alignment: 'center',  // 'start' | 'center' | 'end' within each rank
+  },
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `direction` | `'TB'` | Flow direction: `TB` (top→bottom), `LR` (left→right), `BT` (bottom→top), `RL` (right→left) |
+| `nodeSpacing` | `50` | Horizontal gap between sibling nodes in the same rank |
+| `rankSpacing` | `100` | Vertical gap between ranks (layers) |
+| `nodeWidth` | `172` | Fallback width when node hasn't been measured yet |
+| `nodeHeight` | `36` | Fallback height |
+| `alignment` | `'center'` | Cross-axis alignment of nodes within each rank |
+
+### Run layout on demand
+
+Call `layoutNodes()` any time via the public API:
+
+```js
+// Layout only nodes that don't have positions
+api.layoutNodes({ direction: 'LR' });
+
+// Force re-layout ALL nodes (ignoring existing positions)
+api.layoutNodes({ direction: 'TB', force: true });
+```
+
+### How the algorithm works
+
+1. **Rank assignment** — topological sort assigns each node to a layer (handles cycles and disconnected subgraphs)
+2. **Barycenter ordering** — nodes within each layer are reordered to minimize edge crossings
+3. **Coordinate assignment** — each layer is spaced evenly along the rank axis, nodes spaced along the cross axis
+4. **Position merge** — computed positions are only applied to nodes that lack explicit `{ x, y }`
+
+For more advanced layout needs (e.g., elk, dagre), you can import `layoutNodes` standalone and feed it your own data:
+
+```js
+import { layoutNodes } from 'alpine-flow/layout';
+
+const positioned = layoutNodes(myNodes, myEdges, { direction: 'LR' });
+```
 
 ---
 
@@ -637,6 +732,27 @@ createMinimap(containerEl, getState, actions) → { update(), destroy() }
 ```
 
 Creates an SVG minimap (default: bottom-right) showing all nodes as rectangles and the current viewport as a highlighted window. Click/drag on the minimap to pan. `actions` is `{ setViewport }`.
+
+---
+
+### `src/layout.js`
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `layoutNodes(nodes, edges, options?)` | `(node[], edge[], object?)` | New node array with positions computed for nodes lacking explicit `{ x, y }` |
+
+**Options** (all optional, merged with `LAYOUT_DEFAULTS`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `direction` | `'TB'` | `'TB'` \| `'LR'` \| `'BT'` \| `'RL'` |
+| `nodeSpacing` | `50` | Gap between nodes in the same rank |
+| `rankSpacing` | `100` | Gap between ranks |
+| `nodeWidth` | `172` | Fallback width for unmeasured nodes |
+| `nodeHeight` | `36` | Fallback height |
+| `alignment` | `'center'` | `'start'` \| `'center'` \| `'end'` |
+
+Also exports `LAYOUT_DEFAULTS` (the default options object).
 
 ---
 

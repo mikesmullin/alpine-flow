@@ -16,7 +16,8 @@
     "./viewport": "./src/viewport.js",
     "./background": "./src/background.js",
     "./controls": "./src/controls.js",
-    "./minimap": "./src/minimap.js"
+    "./minimap": "./src/minimap.js",
+    "./layout": "./src/layout.js"
   },
   "files": [
     "src/",
