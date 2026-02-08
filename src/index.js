@@ -179,7 +179,19 @@ export default function AlpineFlow(Alpine) {
       }
 
       this._initialized = true;
-      this._onInit?.(this._getPublicAPI());
+
+      // Expose the public API for cross-component access:
+      //   1. On the container DOM element: el.__alpineFlow
+      //   2. On window (keyed by element id or flow id): window.__alpineFlow[id]
+      const api = this._getPublicAPI();
+      this._containerEl.__alpineFlow = api;
+      if (!window.__alpineFlow) window.__alpineFlow = {};
+      const key = this._containerEl.id || this._flowId;
+      window.__alpineFlow[key] = api;
+      // Also set a default reference for single-flow pages
+      if (!window.__alpineFlow.default) window.__alpineFlow.default = api;
+
+      this._onInit?.(api);
     },
 
     destroy() {
@@ -329,8 +341,12 @@ export default function AlpineFlow(Alpine) {
         getEdge: (id) => this.getEdge(id),
         getNodes: () => [...this.nodes],
         getEdges: () => [...this.edges],
+        getSelectedNodes: () => this.nodes.filter((n) => n.selected),
+        getSelectedEdges: () => this.edges.filter((e) => e.selected),
         addNodes: (n) => this.addNodes(n),
         addEdges: (e) => this.addEdges(e),
+        selectAll: () => this._selectAll(),
+        deselectAll: () => this._deselectAll(),
         deleteElements: (els) => this.deleteSelectedElements(els),
         toJSON: () => this.toJSON(),
         fromJSON: (json) => this.fromJSON(json),
