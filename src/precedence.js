@@ -1,136 +1,170 @@
 /**
- * Alpine Flow — Precedence Pre-Filter
+ * Alpine Flow — Precedence Pre-Filter (v2)
  *
- * A DSL-driven graph filter that resolves cyclical graphs by defining
- * a precedence ordering over node *types*.  Nodes whose type is not
- * mentioned are hidden; edges that violate the declared ordering
- * (i.e. flow from lower → higher precedence) are hidden.
+ * A DSL-driven graph filter that controls which nodes and edges are
+ * visible.  Supports class (type) selectors, instance (id) selectors,
+ * and wildcards for graph traversal.
  *
  * This is a **pre-filter** — it runs before auto-layout and applies
  * regardless of whether `autoLayout` is enabled.
  *
- * ─── Syntax ────────────────────────────────────────────────
+ * ─── Selector Syntax ───────────────────────────────────────
  *
- *   "A > B > C"
- *       A has higher precedence than B, B higher than C.
- *       Only edges A→B, A→C, B→C are kept; C→A etc. are hidden.
+ *   :Type           Class selector  — matches all nodes with node.type === 'Type'
+ *   id:Type         Instance selector — matches node.id === 'id' AND node.type === 'Type'
+ *   id              ID selector     — matches node.id === 'id' (any type)
+ *   *               Wildcard        — one level of connected nodes
+ *   **              Deep wildcard   — all transitively connected nodes
  *
- *   "A > B & C"
- *       A is higher than both B and C (B, C are peers).
- *       Shorthand for "A > B; A > C".
+ * ─── Chain Syntax ──────────────────────────────────────────
  *
- *   "A > B & C > D"
- *       A → {B, C} → D.  Peers B and C are at the same rank.
- *
- *   "A > B; C > D"
- *       Two independent chains combined with ";".
- *       All four types are visible; edges must respect both chains.
- *
- *   Whitespace around >, &, ; is ignored. Type names are trimmed.
+ *   :A > :B > :C       A has higher precedence than B, B higher than C
+ *   :A > :B & :C       A higher than both B and C (peers at same rank)
+ *   :A > :B; :C > :D   Two independent chains combined with ";"
+ *   ** > teamx:Team    teamx and every node that (transitively) leads to it
+ *   :Person > ** > :Product   Person, Product, and all nodes on paths between
+ *   * > :Team          Team nodes and their direct parents only
  *
  * ─── API ───────────────────────────────────────────────────
  *
- *   parsePrecedence(str)   → rules | null
- *   applyPrecedence(nodes, edges, rules) → { nodes, edges }
+ *   parsePrecedence(str)                → rules | null
+ *   applyPrecedence(nodes, edges, rules) → void (mutates in place)
+ *   clearPrecedence(nodes, edges)        → void (undoes hiding)
  */
+
+// ─── Selector Parsing ───────────────────────────────────────
+
+/**
+ * Parse a single token into a selector object.
+ *
+ * @param {string} token
+ * @returns {{ kind: 'type'|'id'|'instance'|'wildcard', ... } | null}
+ */
+function parseSelector(token) {
+  const t = token.trim();
+  if (!t) return null;
+  if (t === '**') return { kind: 'wildcard', depth: Infinity };
+  if (t === '*')  return { kind: 'wildcard', depth: 1 };
+
+  const colonIdx = t.indexOf(':');
+
+  if (colonIdx === -1) {
+    // No colon → bare instance ID
+    return { kind: 'id', id: t };
+  }
+  if (colonIdx === 0) {
+    // :Type → class/type selector
+    const type = t.slice(1);
+    return type ? { kind: 'type', type } : null;
+  }
+  // id:Type → instance selector
+  const id   = t.slice(0, colonIdx);
+  const type = t.slice(colonIdx + 1);
+  return (id && type) ? { kind: 'instance', id, type } : null;
+}
 
 // ─── Parser ─────────────────────────────────────────────────
 
 /**
- * Parse a precedence DSL string into a structured rule object.
+ * Parse a precedence DSL string into structured rules.
  *
- * @param {string} str — the precedence string, e.g. "A > B & C > D; E > F"
- * @returns {{ types: Set<string>, ranks: Map<string, number> } | null}
+ * @param {string} str — e.g. "** > teamx:Team; :Person > ** > :Product"
+ * @returns {{ chains: Array<Array<{ selectors, rank, isWildcard, wildcardDepth }>> } | null}
  */
 export function parsePrecedence(str) {
   if (!str || typeof str !== 'string') return null;
   const trimmed = str.trim();
   if (!trimmed) return null;
 
-  const allTypes = new Set();
+  const chains = [];
 
-  // Adjacency list for the type-level DAG (higher → lower)
-  const adj = new Map();   // type → Set<type>
-  const inDeg = new Map(); // type → number
-
-  const ensureType = (t) => {
-    allTypes.add(t);
-    if (!adj.has(t)) adj.set(t, new Set());
-    if (!inDeg.has(t)) inDeg.set(t, 0);
-  };
-
-  // ── 1. Split by ";" into independent statements ──────────
-  const statements = trimmed.split(';');
-
-  for (const stmt of statements) {
+  for (const stmt of trimmed.split(';')) {
     const s = stmt.trim();
     if (!s) continue;
 
-    // ── 2. Split by ">" into ordered groups ────────────────
-    const groups = s.split('>').map((g) =>
-      g.split('&').map((t) => t.trim()).filter(Boolean)
-    ).filter((g) => g.length > 0);
+    const groups = s.split('>').map((g) => {
+      const selectors = g.split('&').map(parseSelector).filter(Boolean);
+      const hasWild = selectors.length === 1 && selectors[0].kind === 'wildcard';
+      return {
+        selectors,
+        rank: 0,           // assigned below
+        isWildcard: hasWild,
+        wildcardDepth: hasWild ? selectors[0].depth : 0,
+      };
+    }).filter((g) => g.selectors.length > 0);
 
-    // Register every mentioned type
-    for (const group of groups) {
-      for (const type of group) ensureType(type);
-    }
+    if (groups.length === 0) continue;
+    groups.forEach((g, i) => { g.rank = i; });
+    chains.push(groups);
+  }
 
-    // ── 3. Create DAG edges: group[i] → group[i+1] ────────
-    for (let i = 0; i < groups.length - 1; i++) {
-      for (const higher of groups[i]) {
-        for (const lower of groups[i + 1]) {
-          if (higher === lower) continue; // self-loop guard
-          if (!adj.get(higher).has(lower)) {
-            adj.get(higher).add(lower);
-            inDeg.set(lower, (inDeg.get(lower) || 0) + 1);
-          }
+  return chains.length > 0 ? { chains } : null;
+}
+
+// ─── Selector Matching ──────────────────────────────────────
+
+function matchesSelector(node, sel) {
+  switch (sel.kind) {
+    case 'type':     return node.type === sel.type;
+    case 'id':       return node.id === sel.id;
+    case 'instance': return node.id === sel.id && node.type === sel.type;
+    default:         return false;
+  }
+}
+
+function matchesAnyConcreteSelector(node, selectors) {
+  return selectors.some((s) => s.kind !== 'wildcard' && matchesSelector(node, s));
+}
+
+// ─── Graph Walks ────────────────────────────────────────────
+
+/**
+ * BFS walk from a seed set along an adjacency map, up to `maxSteps` hops.
+ * Returns all discovered node IDs **excluding** the seeds themselves.
+ */
+function bfsWalk(seeds, adjMap, maxSteps) {
+  const visited = new Set(seeds);
+  let frontier = new Set(seeds);
+
+  for (let step = 0; step < maxSteps; step++) {
+    const next = new Set();
+    for (const id of frontier) {
+      for (const neighbor of adjMap.get(id) || []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          next.add(neighbor);
         }
       }
     }
+    if (next.size === 0) break;
+    frontier = next;
   }
 
-  if (allTypes.size === 0) return null;
+  // Remove original seeds — caller decides whether to include them
+  for (const id of seeds) visited.delete(id);
+  return visited;
+}
 
-  // ── 4. Compute ranks via longest-path BFS (Kahn's-style) ─
-  const ranks = new Map();
-  const queue = [];
+/**
+ * Find all nodes that lie on some directed path from any source to any target.
+ * Forward-reachable from sources ∩ Backward-reachable from targets.
+ * Returns the intersection (may include sources/targets themselves).
+ */
+function findPathNodes(sources, targets, forwardAdj, backwardAdj, maxSteps) {
+  // Forward from sources
+  const fwd = bfsWalk(sources, forwardAdj, maxSteps);
+  for (const id of sources) fwd.add(id);
 
-  for (const type of allTypes) {
-    if ((inDeg.get(type) || 0) === 0) {
-      ranks.set(type, 0);
-      queue.push(type);
-    }
+  // Backward from targets
+  const bwd = bfsWalk(targets, backwardAdj, maxSteps);
+  for (const id of targets) bwd.add(id);
+
+  // Intersection
+  const result = new Set();
+  for (const id of fwd) {
+    if (bwd.has(id)) result.add(id);
   }
-
-  // If the precedence DAG itself has cycles, fall back to rank 0 for all
-  if (queue.length === 0) {
-    for (const type of allTypes) ranks.set(type, 0);
-    return { types: allTypes, ranks };
-  }
-
-  let head = 0;
-  while (head < queue.length) {
-    const current = queue[head++];
-    const currentRank = ranks.get(current);
-    for (const child of adj.get(current) || []) {
-      const newRank = currentRank + 1;
-      if (newRank > (ranks.get(child) ?? -1)) {
-        ranks.set(child, newRank);
-      }
-      inDeg.set(child, inDeg.get(child) - 1);
-      if (inDeg.get(child) === 0) {
-        queue.push(child);
-      }
-    }
-  }
-
-  // Any type still un-ranked was caught in a cycle within the DSL itself
-  for (const type of allTypes) {
-    if (!ranks.has(type)) ranks.set(type, 0);
-  }
-
-  return { types: allTypes, ranks };
+  return result;
 }
 
 // ─── Applicator ─────────────────────────────────────────────
@@ -138,43 +172,108 @@ export function parsePrecedence(str) {
 /**
  * Apply precedence rules to nodes and edges **in place**.
  *
- * - Nodes whose `type` is NOT mentioned in the precedence string
- *   are marked `hidden: true`.
- * - Edges whose source or target is hidden are marked `hidden: true`.
- * - Edges that flow from a *lower*-precedence type to a
- *   *higher*-precedence type (i.e. backwards) are marked `hidden: true`.
- * - Edges between nodes of the *same* type or at the *same* rank
- *   are left visible (lateral connections).
- *
- * Mutation is intentional — this runs once during init before any
- * rendering or layout happens.
- *
  * @param {Array}  nodes — normalised node array (will be mutated)
  * @param {Array}  edges — normalised edge array (will be mutated)
- * @param {{ types: Set<string>, ranks: Map<string, number> }} rules
+ * @param {{ chains }} rules — output from parsePrecedence()
  */
 export function applyPrecedence(nodes, edges, rules) {
-  if (!rules) return;
+  if (!rules || !rules.chains) return;
 
-  const { types, ranks } = rules;
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const nodeCount = nodes.length;
 
-  // ── 1. Build nodeId → type map & mark hidden nodes ───────
-  const nodeTypeMap = new Map();
-  const visibleNodeIds = new Set();
-
-  for (const node of nodes) {
-    nodeTypeMap.set(node.id, node.type);
-
-    if (types.has(node.type)) {
-      visibleNodeIds.add(node.id);
-      // Don't touch user-set `hidden`; only mark if type is excluded
-    } else {
-      node.hidden = true;
-      node._precedenceHidden = true; // bookkeeping
+  // ── Build adjacency lists ────────────────────────────────
+  const forward  = new Map(); // source → Set<target>
+  const backward = new Map(); // target → Set<source>
+  for (const n of nodes) {
+    forward.set(n.id, new Set());
+    backward.set(n.id, new Set());
+  }
+  for (const e of edges) {
+    if (nodeMap.has(e.source) && nodeMap.has(e.target)) {
+      forward.get(e.source).add(e.target);
+      backward.get(e.target).add(e.source);
     }
   }
 
-  // ── 2. Filter edges ──────────────────────────────────────
+  // ── Accumulate visible nodes and ranks across all chains ─
+  const visibleNodeIds = new Set();
+  const nodeRanks = new Map(); // nodeId → minimum rank (lower = higher precedence)
+
+  for (const chain of rules.chains) {
+    // 1. Resolve concrete (non-wildcard) groups → node ID sets
+    const resolved = chain.map((group) => {
+      if (group.isWildcard) return new Set();
+      const ids = new Set();
+      for (const node of nodes) {
+        if (matchesAnyConcreteSelector(node, group.selectors)) {
+          ids.add(node.id);
+        }
+      }
+      return ids;
+    });
+
+    // 2. Expand wildcard groups via graph traversal
+    for (let i = 0; i < chain.length; i++) {
+      if (!chain[i].isWildcard) continue;
+
+      const depth = chain[i].wildcardDepth;
+      const maxSteps = depth === Infinity ? nodeCount : depth;
+
+      // Nearest concrete group to the left
+      let leftIdx = -1;
+      for (let l = i - 1; l >= 0; l--) {
+        if (!chain[l].isWildcard) { leftIdx = l; break; }
+      }
+
+      // Nearest concrete group to the right
+      let rightIdx = -1;
+      for (let r = i + 1; r < chain.length; r++) {
+        if (!chain[r].isWildcard) { rightIdx = r; break; }
+      }
+
+      if (leftIdx >= 0 && rightIdx >= 0) {
+        // Between two concrete anchors — find nodes on paths
+        const path = findPathNodes(
+          resolved[leftIdx], resolved[rightIdx],
+          forward, backward, maxSteps,
+        );
+        // Remove anchor nodes (they're in their own groups already)
+        for (const id of resolved[leftIdx])  path.delete(id);
+        for (const id of resolved[rightIdx]) path.delete(id);
+        resolved[i] = path;
+      } else if (rightIdx >= 0) {
+        // At left edge — walk BACKWARD from right anchor
+        resolved[i] = bfsWalk(resolved[rightIdx], backward, maxSteps);
+      } else if (leftIdx >= 0) {
+        // At right edge — walk FORWARD from left anchor
+        resolved[i] = bfsWalk(resolved[leftIdx], forward, maxSteps);
+      }
+      // else: wildcard with no concrete anchor on either side → empty (no-op)
+    }
+
+    // 3. Mark visible and assign ranks
+    for (let i = 0; i < chain.length; i++) {
+      for (const nodeId of resolved[i]) {
+        visibleNodeIds.add(nodeId);
+        const existing = nodeRanks.get(nodeId);
+        // Use the minimum rank (highest precedence) if a node appears in multiple groups
+        if (existing === undefined || chain[i].rank < existing) {
+          nodeRanks.set(nodeId, chain[i].rank);
+        }
+      }
+    }
+  }
+
+  // ── 4. Hide nodes not in the visible set ─────────────────
+  for (const node of nodes) {
+    if (!visibleNodeIds.has(node.id)) {
+      node.hidden = true;
+      node._precedenceHidden = true;
+    }
+  }
+
+  // ── 5. Hide edges ────────────────────────────────────────
   for (const edge of edges) {
     // Source or target hidden → edge hidden
     if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
@@ -183,26 +282,22 @@ export function applyPrecedence(nodes, edges, rules) {
       continue;
     }
 
-    const sourceType = nodeTypeMap.get(edge.source);
-    const targetType = nodeTypeMap.get(edge.target);
-    const sourceRank = ranks.get(sourceType);
-    const targetRank = ranks.get(targetType);
+    const sourceRank = nodeRanks.get(edge.source);
+    const targetRank = nodeRanks.get(edge.target);
 
-    // Both ranks must be known (they should be if the types are visible)
-    if (sourceRank === undefined || targetRank === undefined) continue;
-
-    // Backwards edge: source has lower precedence (higher rank number)
-    // than target — this is the cycle-breaking condition
-    if (sourceRank > targetRank) {
+    // Both ranks known and edge goes backward → hidden (cycle-breaking)
+    if (sourceRank !== undefined && targetRank !== undefined && sourceRank > targetRank) {
       edge.hidden = true;
       edge._precedenceHidden = true;
     }
   }
 }
 
+// ─── Clear ──────────────────────────────────────────────────
+
 /**
  * Remove precedence-hidden flags from all nodes and edges.
- * Useful when the precedence option is removed at runtime.
+ * Useful when the precedence option is changed or removed at runtime.
  *
  * @param {Array} nodes
  * @param {Array} edges

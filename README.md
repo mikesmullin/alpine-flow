@@ -167,8 +167,8 @@ alpineFlow({
     // Auto Layout
     autoLayout: false,         // true | object (see Auto Layout section)
 
-    // Precedence (graph pre-filter for cyclical graphs)
-    precedence: null,          // string DSL e.g. "A > B & C > D" (see Precedence section)
+    // Precedence (graph pre-filter — selectors, wildcards, cycle-breaking)
+    precedence: null,          // string DSL e.g. "** > :Team" (see Precedence section)
 
     // Validation
     isValidConnection: null,   // (connection) => boolean
@@ -433,37 +433,58 @@ const positioned = layoutNodes(myNodes, myEdges, { direction: 'LR' });
 
 ## Precedence (Graph Pre-Filter)
 
-Real-world graphs often contain cycles (e.g. **A → B → C → A**). Cycles make
-hierarchical layout impossible and can clutter the view. The `precedence` option
-lets you declare a **type-level ordering** that:
-
-1. **Hides** nodes whose type is not mentioned in the string
-2. **Hides** edges that flow *against* the declared ordering (breaking cycles)
+The `precedence` option is a powerful DSL for controlling **which** nodes and
+edges are visible. It supports class (type) selectors, instance (id) selectors,
+and wildcards for automatic graph traversal — making it easy to break cycles,
+focus on a subgraph, or show the ancestry / descendants of a specific node.
 
 Precedence is a **pre-filter** — it applies regardless of whether `autoLayout`
 is enabled. Think of it as deciding *what to show*, while `autoLayout` decides
 *where to place things*.
 
-### Syntax
+### Selector Reference
+
+| Selector | Matches | Example |
+|----------|---------|----------|
+| `:Type` | All nodes with `node.type === 'Type'` | `:Team` |
+| `id:Type` | Node with `node.id === 'id'` AND `node.type === 'Type'` | `teamx:Team` |
+| `id` | Node with `node.id === 'id'` (any type) | `teamx` |
+| `*` | One level of connected nodes (direct neighbors) | `* > :Team` |
+| `**` | All transitively connected nodes (recursive) | `** > :Team` |
+
+### Chain Syntax
 
 ```
-"A > B > C"            A has higher precedence than B, B higher than C
-"A > B & C"            A higher than both B and C (B, C are peers)
-"A > B & C > D"        A → {B, C} → D
-"A > B; C > D"         Two independent chains, combined
-"A > B > C; A > D > C" Diamond: A → B → C and A → D → C
+":A > :B > :C"              A has higher precedence than B, B higher than C
+":A > :B & :C"              A higher than both B and C (peers at same rank)
+":A > :B; :C > :D"          Two independent chains, combined
+"** > teamx:Team"           teamx and every node that leads to it (all ancestors)
+"teamx:Team > **"           teamx and every node reachable from it (all descendants)
+"* > :Team"                 Team nodes and their direct parents only
+":Person > ** > :Product"   Person, Product, and all nodes on paths between them
 ```
 
 | Token | Meaning |
 |-------|---------|
 | `>`   | Left side has higher precedence than right side |
-| `&`   | Multiple types at the **same** precedence level |
-| `;`   | Separate independent chains (all are merged) |
+| `&`   | Multiple selectors at the **same** precedence level |
+| `;`   | Separate independent chains (results are merged) |
 
-### Quick example
+### How wildcards work
+
+- **`*`** expands exactly **one hop** from the nearest concrete selector.
+- **`**`** expands **unlimited hops** (full transitive closure).
+- Direction is determined by position in the chain: wildcards on the **left** of a
+  concrete selector walk **backward** (upstream / ancestors); wildcards on the
+  **right** walk **forward** (downstream / descendants).
+- When a wildcard sits **between** two concrete selectors, it finds all nodes on
+  directed paths from the left anchor to the right anchor.
+
+### Quick examples
+
+**Cycle-breaking by type:**
 
 ```js
-// Cyclical graph: Server → Cache → Database → Server
 {
   nodes: [
     { id: '1', type: 'Server',   data: { label: 'Web Server' } },
@@ -476,22 +497,43 @@ is enabled. Think of it as deciding *what to show*, while `autoLayout` decides
     { source: '3', target: '1' },  // Database → Server     ✗ hidden (backwards)
   ],
   options: {
-    precedence: 'Server > Cache > Database',
-    autoLayout: true,   // optional — precedence works without it too
+    precedence: ':Server > :Cache > :Database',
+    autoLayout: true,
   },
 }
 ```
 
-The cycle-breaking edge **Database → Server** is automatically hidden because
-`Database` has lower precedence than `Server`. The remaining graph is a clean
-DAG that layouts perfectly.
+**Focus on one node and its ancestors:**
 
-### Filtering by type
+```js
+options: {
+  precedence: '** > teamx:Team',   // show teamx + everything upstream
+}
+```
 
-Only types mentioned in the precedence string are visible. If your graph has
-nodes of types `Server`, `Cache`, `Database`, and `Logger`, and the precedence
-is `"Server > Cache > Database"`, all `Logger` nodes (and their edges) are
-automatically hidden.
+**Show paths between two types:**
+
+```js
+options: {
+  precedence: ':Person > ** > :Product',   // Person, Product, and intermediaries
+}
+```
+
+**Show a node and its direct children:**
+
+```js
+options: {
+  precedence: 'srv1 > *',   // node id="srv1" and its immediate downstream neighbors
+}
+```
+
+### Filtering behavior
+
+- Nodes that don't match **any** selector (including wildcard expansion) are hidden.
+- Edges where either endpoint is hidden are hidden.
+- Edges that flow **against** the chain direction (lower precedence → higher
+  precedence) are hidden — this is the cycle-breaking mechanism.
+- Edges between nodes at the **same** rank are kept (lateral connections).
 
 ### Precedence without auto-layout
 
@@ -499,8 +541,20 @@ Precedence and layout are orthogonal:
 
 ```js
 options: {
-  precedence: 'Server > Cache > Database',
+  precedence: ':Server > :Cache > :Database',
   autoLayout: false,   // you position nodes manually; precedence just filters
+}
+```
+
+### Runtime updates
+
+Use the public API to change precedence on the fly (e.g. driven by a text input):
+
+```js
+onInit(api) {
+  input.addEventListener('input', () => {
+    api.setPrecedence(input.value);   // clears old, applies new, re-renders
+  });
 }
 ```
 
@@ -509,12 +563,18 @@ options: {
 ```js
 import { parsePrecedence, applyPrecedence } from 'alpine-flow/precedence';
 
-const rules = parsePrecedence('A > B & C > D');
-// rules.types  → Set { 'A', 'B', 'C', 'D' }
-// rules.ranks  → Map { 'A' → 0, 'B' → 1, 'C' → 1, 'D' → 2 }
-
+const rules = parsePrecedence('** > teamx:Team');
 applyPrecedence(myNodes, myEdges, rules);
 // nodes/edges mutated: hidden flags set on filtered-out items
+```
+
+Or via the default import (no named imports needed):
+
+```js
+import AlpineFlow from 'alpine-flow';
+
+const rules = AlpineFlow.parsePrecedence(':A > :B & :C');
+AlpineFlow.applyPrecedence(myNodes, myEdges, rules);
 ```
 
 ---
