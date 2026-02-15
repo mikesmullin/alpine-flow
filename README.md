@@ -487,18 +487,18 @@ alpineFlow({
 ```js
 options: {
   forceLayout: {
-    enabled: true,
-    autoStart: true,
-    linkDistance: 100,
-    linkStrength: 0.08,
-    chargeStrength: -300,
-    collisionRadius: 45,
-    centerStrength: 0.02,
-    alpha: 0.3,
-    alphaMin: 0.002,
-    alphaDecay: 0.04,
-    alphaTarget: 0,
-    velocityDecay: 0.2,
+    enabled: true, // Turns force mode on/off
+    autoStart: true, // Starts simulation automatically when enabled |
+    linkDistance: 100,   // Target spring length between connected nodes (higher = farther apart)
+    linkStrength: 0.08,  // Spring stiffness for links (higher = snappier pull)
+    chargeStrength: -300, // Global repulsion force between all nodes (more negative = stronger push apart)
+    collisionRadius: 45, // Minimum collision radius per node to prevent overlap
+    centerStrength: 0.02, // Gentle pull toward simulation center to keep graph from drifting
+    alpha: 0.3,          // Initial simulation energy at startup
+    alphaMin: 0.002,     // Stop threshold; simulation halts when energy cools below this
+    alphaDecay: 0.04,    // Cooling rate per tick (higher = settles faster)
+    alphaTarget: 0,      // Long-term target energy (0 means cool to rest)
+    velocityDecay: 0.2,  // Motion damping/friction each tick (higher = less momentum)
   },
 }
 ```

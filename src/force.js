@@ -8,7 +8,7 @@ const FORCE_DEFAULTS = {
   linkStrength: 0.08,
   chargeStrength: -300,
   collisionRadius: 45,
-  centerStrength: 0.05,
+  centerStrength: 0.02,
   centerX: 0,
   centerY: 0,
   anchorNodeId: 'streamline',
