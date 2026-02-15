@@ -96,6 +96,7 @@ export default function AlpineFlow(Alpine) {
       showBackground: true,
       showControls: true,
       showMinimap: false,
+      minimapPanSensitivity: 0.02,
       isValidConnection: null,
       autoLayout: false,           // true | { direction, nodeSpacing, rankSpacing, ... }
       precedence: null,              // string DSL e.g. "A > B & C > D"
@@ -195,7 +196,7 @@ export default function AlpineFlow(Alpine) {
       }
       if (this.options.showMinimap) {
         this._minimapComponent = createMinimap(this._containerEl, () => this._getState(), {
-          setViewport: (vp) => { this.viewport = vp; },
+          setViewport: (vp) => { this._setViewport(vp); },
         });
       }
 
@@ -368,7 +369,7 @@ export default function AlpineFlow(Alpine) {
         zoomIn: (opts) => this.zoomIn(opts),
         zoomOut: (opts) => this.zoomOut(opts),
         zoomTo: (level, opts) => this.zoomTo(level, opts),
-        setViewport: (vp) => { this.viewport = { ...vp }; },
+        setViewport: (vp) => this._setViewport(vp),
         getViewport: () => ({ ...this.viewport }),
         screenToFlowPosition: (pos) => this.screenToFlowPosition(pos),
         flowToScreenPosition: (pos) => this.flowToScreenPosition(pos),
@@ -667,6 +668,17 @@ export default function AlpineFlow(Alpine) {
       if (!this._viewportEl) return;
       const { x, y, zoom } = this.viewport;
       this._viewportEl.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+    },
+
+    _setViewport(vp) {
+      this.viewport = { ...vp };
+      this._applyViewportTransform();
+      this._backgroundComponent?.update();
+      this._minimapComponent?.update();
+      this._controlsComponent?.update();
+      this._onViewportChange?.(this.viewport);
+      this._syncForceAnchorNode();
+      this._maybeReheatForce(0.08);
     },
 
     // ──────────────────────────────────────────

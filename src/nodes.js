@@ -284,15 +284,15 @@ export function createNodeDragHandler(getState, callbacks) {
 
       if (xMovement !== 0 || yMovement !== 0) {
         const newViewport = {
-          x: viewport.x - xMovement,
-          y: viewport.y - yMovement,
+          x: viewport.x + xMovement,
+          y: viewport.y + yMovement,
           zoom: viewport.zoom,
         };
         callbacks.onViewportChange?.(newViewport);
 
         // Adjust lastPos to account for the viewport shift
-        lastPos.x += xMovement / viewport.zoom;
-        lastPos.y += yMovement / viewport.zoom;
+        lastPos.x -= xMovement / viewport.zoom;
+        lastPos.y -= yMovement / viewport.zoom;
 
         const snapGrid = options.snapToGrid ? (options.snapGrid ?? DEFAULTS.snapGrid) : null;
         let snapOffset = { x: 0, y: 0 };

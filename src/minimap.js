@@ -43,6 +43,12 @@ export function createMinimap(container, getState, actions) {
     mask: `url(#${maskId})`,
   }, svg);
 
+  const viewportFrame = createSvgElement('rect', {
+    class: 'alpine-flow__minimap-viewport',
+    fill: 'none',
+    style: { display: 'none', pointerEvents: 'none' },
+  }, svg);
+
   // Click to pan
   svg.addEventListener('pointerdown', onPointerDown);
 
@@ -51,9 +57,12 @@ export function createMinimap(container, getState, actions) {
   function onPointerDown(event) {
     event.preventDefault();
     isPanning = true;
+    viewportFrame.style.display = 'block';
     svg.setPointerCapture(event.pointerId);
     svg.addEventListener('pointermove', onPointerMove);
     svg.addEventListener('pointerup', onPointerUp);
+    svg.addEventListener('pointercancel', onPointerUp);
+    update();
     handlePanToPoint(event);
   }
 
@@ -64,14 +73,18 @@ export function createMinimap(container, getState, actions) {
 
   function onPointerUp(event) {
     isPanning = false;
+    viewportFrame.style.display = 'none';
     svg.releasePointerCapture(event.pointerId);
     svg.removeEventListener('pointermove', onPointerMove);
     svg.removeEventListener('pointerup', onPointerUp);
+    svg.removeEventListener('pointercancel', onPointerUp);
+    update();
   }
 
   function handlePanToPoint(event) {
     const state = getState();
     const { viewport } = state;
+    const minimapPanSensitivity = Math.min(Math.max(state.options?.minimapPanSensitivity ?? 0.5, 0.05), 2);
     const svgRect = svg.getBoundingClientRect();
     const svgViewBox = currentViewBox;
 
@@ -84,13 +97,18 @@ export function createMinimap(container, getState, actions) {
     const flowX = svgViewBox.x + ratioX * svgViewBox.width;
     const flowY = svgViewBox.y + ratioY * svgViewBox.height;
 
-    // Center viewport on this point
+    // Move viewport center toward this point, scaled by sensitivity
     const containerW = state.containerWidth ?? 800;
     const containerH = state.containerHeight ?? 600;
 
+    const currentCenterX = (-viewport.x + containerW / 2) / viewport.zoom;
+    const currentCenterY = (-viewport.y + containerH / 2) / viewport.zoom;
+    const nextCenterX = currentCenterX + (flowX - currentCenterX) * minimapPanSensitivity;
+    const nextCenterY = currentCenterY + (flowY - currentCenterY) * minimapPanSensitivity;
+
     actions.setViewport({
-      x: -flowX * viewport.zoom + containerW / 2,
-      y: -flowY * viewport.zoom + containerH / 2,
+      x: -nextCenterX * viewport.zoom + containerW / 2,
+      y: -nextCenterY * viewport.zoom + containerH / 2,
       zoom: viewport.zoom,
     });
   }
@@ -147,6 +165,13 @@ export function createMinimap(container, getState, actions) {
     viewportMask.setAttribute('y', String(vbY));
     viewportMask.setAttribute('width', String(vbW));
     viewportMask.setAttribute('height', String(vbH));
+    viewportMask.style.display = 'none';
+
+    viewportFrame.setAttribute('x', String(viewportBounds.x));
+    viewportFrame.setAttribute('y', String(viewportBounds.y));
+    viewportFrame.setAttribute('width', String(viewportBounds.width));
+    viewportFrame.setAttribute('height', String(viewportBounds.height));
+    viewportFrame.style.display = isPanning ? 'block' : 'none';
 
     // Update node rects
     const currentIds = new Set();
