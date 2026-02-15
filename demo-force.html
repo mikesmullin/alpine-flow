@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpine Flow — Force Demo</title>
+
+  <link rel="stylesheet" href="./alpine-flow.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    html, body { margin: 0; height: 100%; }
+    .alpine-flow { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100">
+  <header class="fixed top-0 left-0 right-0 z-50 flex items-center gap-2 px-4 py-2 bg-gray-900/85 backdrop-blur border-b border-gray-800">
+    <h1 class="text-sm font-semibold tracking-wide text-blue-400">Alpine Flow — Force Mode</h1>
+    <span class="text-xs text-gray-500">dependency-free simulation</span>
+    <div class="flex-1"></div>
+    <button id="btn-start" class="px-3 py-1 text-xs rounded bg-emerald-700 hover:bg-emerald-600 transition">Start</button>
+    <button id="btn-stop" class="px-3 py-1 text-xs rounded bg-rose-700 hover:bg-rose-600 transition">Stop</button>
+    <button id="btn-reheat" class="px-3 py-1 text-xs rounded bg-blue-700 hover:bg-blue-600 transition">Reheat</button>
+    <button id="btn-toggle-force" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">Toggle Force</button>
+    <button id="btn-fit" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">Fit</button>
+  </header>
+
+  <div id="flow-container"
+    class="w-full"
+    style="height: 100vh; padding-top: 42px;"
+    x-data="alpineFlow({
+      nodes: [
+        { id: '1', type: 'input',   position: { x: -220, y: -120 }, data: { label: 'Input A' } },
+        { id: '2', type: 'input',   position: { x: -200, y: 120 },  data: { label: 'Input B' } },
+        { id: '3', type: 'default', position: { x: -20, y: -40 },   data: { label: 'Transform' } },
+        { id: '4', type: 'default', position: { x: 160, y: -120 },  data: { label: 'Validate' } },
+        { id: '5', type: 'default', position: { x: 180, y: 80 },    data: { label: 'Route' } },
+        { id: '6', type: 'output',  position: { x: 360, y: -20 },   data: { label: 'Output' } },
+        { id: '7', type: 'default', position: { x: 20, y: 220 },    data: { label: 'Audit' } },
+      ],
+      edges: [
+        { id: 'e1-3', source: '1', target: '3', animated: true },
+        { id: 'e2-3', source: '2', target: '3' },
+        { id: 'e3-4', source: '3', target: '4' },
+        { id: 'e3-5', source: '3', target: '5' },
+        { id: 'e4-6', source: '4', target: '6', label: 'ok' },
+        { id: 'e5-6', source: '5', target: '6', type: 'smoothstep' },
+        { id: 'e2-7', source: '2', target: '7', type: 'straight' },
+        { id: 'e7-5', source: '7', target: '5', type: 'step' },
+      ],
+      options: {
+        fitView: true,
+        showBackground: true,
+        showControls: true,
+        showMinimap: true,
+        background: { variant: 'dots', gap: 20, size: 1 },
+        forceLayout: {
+          enabled: true,
+          autoStart: true,
+          linkDistance: 100,
+          linkStrength: 0.08,
+          chargeStrength: -300,
+          collisionRadius: 45,
+          centerStrength: 0.02,
+          alpha: 0.3,
+          alphaMin: 0.002,
+          alphaDecay: 0.04,
+          alphaTarget: 0,
+          velocityDecay: 0.2,
+        },
+      },
+      onInit(api) {
+        window.__forceFlow = api;
+      },
+    })">
+  </div>
+
+  <script type="module">
+    import Alpine from 'https://esm.sh/alpinejs@3.14.8';
+    import AlpineFlow from './src/index.js';
+
+    Alpine.plugin(AlpineFlow);
+    window.Alpine = Alpine;
+    Alpine.start();
+
+    function getFlow() {
+      const el = document.getElementById('flow-container');
+      return Alpine.$data(el);
+    }
+
+    document.getElementById('btn-start').addEventListener('click', () => {
+      getFlow()?.startForce();
+    });
+
+    document.getElementById('btn-stop').addEventListener('click', () => {
+      getFlow()?.stopForce();
+    });
+
+    document.getElementById('btn-reheat').addEventListener('click', () => {
+      getFlow()?.reheatForce(0.28);
+    });
+
+    document.getElementById('btn-toggle-force').addEventListener('click', () => {
+      const flow = getFlow();
+      if (!flow) return;
+      const current = flow.options.forceLayout;
+      const enabled = typeof current === 'object' ? current.enabled !== false : !!current;
+      flow.setForceOptions({ enabled: !enabled });
+      if (!enabled) {
+        flow.startForce();
+      }
+    });
+
+    document.getElementById('btn-fit').addEventListener('click', () => {
+      getFlow()?.fitView();
+    });
+  </script>
+</body>
+</html>

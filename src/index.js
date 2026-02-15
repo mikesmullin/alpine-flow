@@ -20,6 +20,29 @@ import { createControls } from './controls.js';
 import { createMinimap } from './minimap.js';
 import { layoutNodes, LAYOUT_DEFAULTS } from './layout.js';
 import { parsePrecedence, applyPrecedence, clearPrecedence } from './precedence.js';
+import { createForceSimulation, FORCE_DEFAULTS } from './force.js';
+
+const FORCE_LAYOUT_DEFAULTS = {
+  enabled: false,
+  autoStart: true,
+  linkDistance: FORCE_DEFAULTS.linkDistance,
+  linkStrength: FORCE_DEFAULTS.linkStrength,
+  chargeStrength: FORCE_DEFAULTS.chargeStrength,
+  collisionRadius: FORCE_DEFAULTS.collisionRadius,
+  centerStrength: FORCE_DEFAULTS.centerStrength,
+  centerX: FORCE_DEFAULTS.centerX,
+  centerY: FORCE_DEFAULTS.centerY,
+  anchorNodeId: FORCE_DEFAULTS.anchorNodeId,
+  alpha: FORCE_DEFAULTS.alpha,
+  alphaMin: FORCE_DEFAULTS.alphaMin,
+  alphaDecay: FORCE_DEFAULTS.alphaDecay,
+  alphaTarget: FORCE_DEFAULTS.alphaTarget,
+  velocityDecay: FORCE_DEFAULTS.velocityDecay,
+  ambientMotion: true,
+  ambientIntervalMs: 50,
+  ambientPhaseStep: 0.001,
+  ambientAlphaPulse: 0.1,
+};
 
 /**
  * Alpine.js Plugin
@@ -76,6 +99,7 @@ export default function AlpineFlow(Alpine) {
       isValidConnection: null,
       autoLayout: false,           // true | { direction, nodeSpacing, rankSpacing, ... }
       precedence: null,              // string DSL e.g. "A > B & C > D"
+      forceLayout: false,
       ...config.options,
     },
 
@@ -111,6 +135,13 @@ export default function AlpineFlow(Alpine) {
     _selectionBoxEl: null,
     _isSelecting: false,
     _selectionStart: null,
+    _hoveredNodeId: null,
+    _hoverNeighborIds: new Set(),
+    _forceSimulation: null,
+    _forceTickCount: 0,
+    _boundVisibilityChange: null,
+    _ambientPhase: 0,
+    _ambientIntervalId: null,
 
     // User callbacks
     _onConnect: config.onConnect || null,
@@ -149,6 +180,7 @@ export default function AlpineFlow(Alpine) {
       this._initKeyboardHandler();
       this._renderAllNodes();
       this._renderAllEdges();
+      this._initForceSimulation();
 
       if (this.options.showBackground) {
         this._backgroundComponent = createBackground(this._containerEl, () => this._getState());
@@ -195,6 +227,7 @@ export default function AlpineFlow(Alpine) {
     },
 
     destroy() {
+      this._destroyForceSimulation();
       this._panZoomHandler?.destroy();
       this._dragHandler?.destroy();
       this._connectionHandler?.destroy();
@@ -273,8 +306,10 @@ export default function AlpineFlow(Alpine) {
       pane.addEventListener('pointerdown', (event) => this._onPanePointerDown(event));
       pane.addEventListener('click', (event) => {
         if (event.target === pane || event.target.classList.contains('alpine-flow__pane')) {
+          this._setHoveredNode(null);
           this._deselectAll();
           this._onPaneClick?.(event);
+          this._maybeReheatForce(0.06);
         }
       });
 
@@ -352,6 +387,12 @@ export default function AlpineFlow(Alpine) {
         fromJSON: (json) => this.fromJSON(json),
         layoutNodes: (opts) => this.layoutNodesAndRender(opts),
         setPrecedence: (str) => this.setPrecedence(str),
+        startForce: () => this.startForce(),
+        stopForce: () => this.stopForce(),
+        reheatForce: (alpha) => this.reheatForce(alpha),
+        setForceOptions: (opts) => this.setForceOptions(opts),
+        pinNode: (id, point) => this.pinNode(id, point),
+        unpinNode: (id) => this.unpinNode(id),
       };
     },
 
@@ -399,6 +440,7 @@ export default function AlpineFlow(Alpine) {
       this._renderAllEdges();
       this._minimapComponent?.update();
       this._controlsComponent?.update();
+      this._refreshForceGraphData({ restart: true, reheat: true });
     },
 
     // ──────────────────────────────────────────
@@ -419,6 +461,173 @@ export default function AlpineFlow(Alpine) {
         const pos = posMap.get(n.id);
         return pos ? { ...n, position: pos } : n;
       });
+    },
+
+    // ──────────────────────────────────────────
+    // Force Layout
+    // ──────────────────────────────────────────
+    _getForceLayoutOptions() {
+      const raw = this.options.forceLayout;
+      if (!raw) return { ...FORCE_LAYOUT_DEFAULTS, enabled: false };
+      if (raw === true) return { ...FORCE_LAYOUT_DEFAULTS, enabled: true };
+      return {
+        ...FORCE_LAYOUT_DEFAULTS,
+        ...raw,
+        enabled: raw.enabled !== false,
+      };
+    },
+
+    _isForceEnabled() {
+      return this._getForceLayoutOptions().enabled;
+    },
+
+    _initForceSimulation() {
+      if (!this._isForceEnabled()) return;
+
+      const forceOptions = this._getForceLayoutOptions();
+      this._forceSimulation = createForceSimulation(forceOptions);
+      this._refreshForceGraphData({ restart: false, reheat: false });
+      this._updateAmbientLoop();
+
+      if (!this._boundVisibilityChange) {
+        this._boundVisibilityChange = () => {
+          if (!this._forceSimulation) return;
+          if (document.hidden) {
+            this._forceSimulation.stop();
+            return;
+          }
+          this._syncForceAnchorNode();
+          if (this._isForceEnabled() && this._getForceLayoutOptions().autoStart) {
+            this._forceSimulation.start((state) => this._onForceTick(state));
+          }
+        };
+        document.addEventListener('visibilitychange', this._boundVisibilityChange);
+      }
+
+      if (forceOptions.autoStart) {
+        this._forceSimulation.start((state) => this._onForceTick(state));
+      }
+    },
+
+    _destroyForceSimulation() {
+      this._stopAmbientLoop();
+      this._forceSimulation?.stop();
+      this._forceSimulation = null;
+      if (this._boundVisibilityChange) {
+        document.removeEventListener('visibilitychange', this._boundVisibilityChange);
+        this._boundVisibilityChange = null;
+      }
+    },
+
+    _refreshForceGraphData({ restart = true, reheat = false } = {}) {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+
+      const visibleNodes = this.nodes.filter((node) => !node.hidden);
+      const visibleEdges = this.edges.filter((edge) => !edge.hidden);
+
+      this._forceSimulation.setOptions(this._getForceLayoutOptions());
+      this._forceSimulation.setNodes(visibleNodes);
+      this._forceSimulation.setEdges(visibleEdges);
+      this._syncForceAnchorNode();
+      this._updateAmbientLoop();
+
+      if (reheat) {
+        this._forceSimulation.reheat(0.2);
+      }
+
+      if (restart && this._getForceLayoutOptions().autoStart) {
+        this._forceSimulation.start((state) => this._onForceTick(state));
+      }
+    },
+
+    _onForceTick(state) {
+      if (!state?.nodes || state.nodes.size === 0) return;
+
+      const movedNodeIds = new Set();
+
+      for (const node of this.nodes) {
+        const simNode = state.nodes.get(node.id);
+        if (!simNode || node.hidden) continue;
+
+        if (node.position.x !== simNode.x || node.position.y !== simNode.y) {
+          node.position = { x: simNode.x, y: simNode.y };
+          movedNodeIds.add(node.id);
+        }
+
+        const lookupNode = this._nodeLookup.get(node.id);
+        if (lookupNode) {
+          lookupNode.position = { ...node.position };
+          lookupNode.internals.positionAbsolute = { ...node.position };
+        }
+
+        const nodeEl = this._nodeElements.get(node.id);
+        if (nodeEl) {
+          nodeEl.style.transform = `translate(${simNode.x}px, ${simNode.y}px)`;
+        }
+      }
+
+      if (movedNodeIds.size > 0) {
+        this._updateEdgesForNodes(movedNodeIds);
+        this._forceTickCount += 1;
+        if (this._forceTickCount % 4 === 0) {
+          this._minimapComponent?.update();
+        }
+        this._applyHoverEmphasis();
+      }
+    },
+
+    _maybeReheatForce(alpha = 0.12) {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+      this._forceSimulation.reheat(alpha);
+    },
+
+    _syncForceAnchorNode() {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+      const forceOptions = this._getForceLayoutOptions();
+      const anchorNodeId = forceOptions.anchorNodeId || 'streamline';
+      const anchorNode = this.nodes.find((node) => node.id === anchorNodeId && !node.hidden);
+      if (!anchorNode) return;
+
+      const centerFlowPos = {
+        x: (this._containerWidth / 2 - this.viewport.x) / this.viewport.zoom,
+        y: (this._containerHeight / 2 - this.viewport.y) / this.viewport.zoom,
+      };
+
+      this._forceSimulation.setOptions({ centerX: centerFlowPos.x, centerY: centerFlowPos.y });
+      this._forceSimulation.pinNode(anchorNodeId, centerFlowPos.x, centerFlowPos.y);
+    },
+
+    _stopAmbientLoop() {
+      if (!this._ambientIntervalId) return;
+      clearInterval(this._ambientIntervalId);
+      this._ambientIntervalId = null;
+    },
+
+    _updateAmbientLoop() {
+      const forceOptions = this._getForceLayoutOptions();
+      const shouldRunAmbient = this._isForceEnabled() && !!forceOptions.ambientMotion;
+
+      if (!shouldRunAmbient) {
+        this._stopAmbientLoop();
+        return;
+      }
+
+      if (this._ambientIntervalId) return;
+
+      const intervalMs = Math.max(10, forceOptions.ambientIntervalMs ?? 50);
+      const phaseStep = forceOptions.ambientPhaseStep ?? 0.001;
+      const alphaPulse = forceOptions.ambientAlphaPulse ?? 0.1;
+
+      this._ambientIntervalId = setInterval(() => {
+        if (document.hidden) return;
+        if (!this._forceSimulation || !this._isForceEnabled()) return;
+
+        this._ambientPhase += phaseStep;
+        this._forceSimulation.pulseAmbient(this._ambientPhase);
+        this._forceSimulation.setAlpha(alphaPulse);
+        this._syncForceAnchorNode();
+        this._forceSimulation.start((state) => this._onForceTick(state));
+      }, intervalMs);
     },
 
     // ──────────────────────────────────────────
@@ -443,7 +652,9 @@ export default function AlpineFlow(Alpine) {
             this._backgroundComponent?.update();
             this._minimapComponent?.update();
             this._controlsComponent?.update();
+            this._syncForceAnchorNode();
             this._onViewportChange?.(vp);
+            this._maybeReheatForce(0.08);
           },
           onPanZoomStart: (event, vp) => {},
           onPanZoom: (event, vp) => {},
@@ -466,12 +677,28 @@ export default function AlpineFlow(Alpine) {
         () => this._getState(),
         {
           onNodeDragStart: (event, nodeId, nodes) => {
+            if (this._isForceEnabled() && this._forceSimulation) {
+              for (const node of nodes) {
+                const currentNode = this._nodeLookup.get(node.id) || node;
+                const absPos = currentNode.internals?.positionAbsolute ?? currentNode.position;
+                this._forceSimulation.pinNode(node.id, absPos.x, absPos.y);
+              }
+              this._forceSimulation.setAlphaTarget(0.3);
+              this._forceSimulation.start((state) => this._onForceTick(state));
+            }
             this._onNodeDragStart?.(event, this.getNode(nodeId), nodes);
           },
           onNodeDrag: (event, nodeId, changes) => {
             this._onNodeDrag?.(event, this.getNode(nodeId), changes);
           },
           onNodeDragStop: (event, nodeId, nodes) => {
+            if (this._isForceEnabled() && this._forceSimulation) {
+              for (const node of nodes) {
+                this._forceSimulation.unpinNode(node.id);
+              }
+              this._syncForceAnchorNode();
+              this._forceSimulation.setAlphaTarget(0);
+            }
             this._onNodeDragStop?.(event, this.getNode(nodeId), nodes);
           },
           onPositionChange: (changes, isFinal) => {
@@ -482,6 +709,7 @@ export default function AlpineFlow(Alpine) {
             this._applyViewportTransform();
             this._backgroundComponent?.update();
             this._minimapComponent?.update();
+            this._syncForceAnchorNode();
           },
         }
       );
@@ -521,6 +749,15 @@ export default function AlpineFlow(Alpine) {
               nodeEl.classList.remove('dragging');
             }
           }
+
+          if (this._isForceEnabled() && this._forceSimulation) {
+            const absolutePos = change.positionAbsolute || change.position;
+            if (change.dragging) {
+              this._forceSimulation.movePinnedNode(change.id, absolutePos.x, absolutePos.y);
+            } else {
+              this._forceSimulation.unpinNode(change.id);
+            }
+          }
         }
 
         if (change.dragging !== undefined && !change.position) {
@@ -540,6 +777,7 @@ export default function AlpineFlow(Alpine) {
       this._updateEdgesForNodes(movedNodeIds);
       this._updateConnectionLine();
       this._minimapComponent?.update();
+      this._applyHoverEmphasis();
 
       // Fire change callback
       if (this._onNodesChange) {
@@ -570,6 +808,7 @@ export default function AlpineFlow(Alpine) {
               this.edges = addEdge(connection, this.edges);
               this._initNodeLookup();
               this._renderAllEdges();
+              this._refreshForceGraphData({ restart: true, reheat: true });
             }
           },
           onConnectEnd: (event) => {
@@ -862,6 +1101,8 @@ export default function AlpineFlow(Alpine) {
       this._renderAllNodes();
       this._renderAllEdges();
       this._minimapComponent?.update();
+      this._refreshForceGraphData({ restart: true, reheat: true });
+      this._applyHoverEmphasis();
     },
 
     _moveSelectedNodes(dx, dy) {
@@ -891,6 +1132,7 @@ export default function AlpineFlow(Alpine) {
         const movedIds = new Set(changes.map((c) => c.id));
         this._updateEdgesForNodes(movedIds);
         this._minimapComponent?.update();
+        this._refreshForceGraphData({ restart: false, reheat: true });
       }
     },
 
@@ -921,6 +1163,7 @@ export default function AlpineFlow(Alpine) {
       // Remove stale node elements
       for (const [id, el] of this._nodeElements) {
         if (!currentIds.has(id)) {
+          if (this._hoveredNodeId === id) this._setHoveredNode(null);
           this._resizeObserver.unobserve(el);
           el.remove();
           this._nodeElements.delete(id);
@@ -932,6 +1175,7 @@ export default function AlpineFlow(Alpine) {
         if (node.hidden) {
           const existing = this._nodeElements.get(node.id);
           if (existing) {
+            if (this._hoveredNodeId === node.id) this._setHoveredNode(null);
             this._resizeObserver.unobserve(existing);
             existing.remove();
             this._nodeElements.delete(node.id);
@@ -982,6 +1226,16 @@ export default function AlpineFlow(Alpine) {
             this._onNodeDoubleClick?.(event, this.getNode(node.id));
           });
 
+          nodeEl.addEventListener('mouseenter', () => {
+            this._setHoveredNode(node.id);
+          });
+
+          nodeEl.addEventListener('mouseleave', () => {
+            if (this._hoveredNodeId === node.id) {
+              this._setHoveredNode(null);
+            }
+          });
+
           // Handle pointerdown for connections
           nodeEl.querySelectorAll('.alpine-flow__handle').forEach((handleEl) => {
             handleEl.addEventListener('pointerdown', (event) => {
@@ -1001,6 +1255,87 @@ export default function AlpineFlow(Alpine) {
           nodeEl.style.zIndex = String(enriched?.internals?.z ?? 0);
           nodeEl.classList.toggle('selected', !!node.selected);
         }
+      }
+
+      this._applyHoverEmphasis();
+    },
+
+    _setHoveredNode(nodeId) {
+      this._hoveredNodeId = nodeId;
+      this._hoverNeighborIds = new Set();
+
+      if (nodeId) {
+        this._hoverNeighborIds.add(nodeId);
+        for (const edge of this.edges) {
+          if (edge.hidden) continue;
+          if (edge.source === nodeId) this._hoverNeighborIds.add(edge.target);
+          if (edge.target === nodeId) this._hoverNeighborIds.add(edge.source);
+        }
+      }
+
+      this._applyHoverEmphasis();
+    },
+
+    _applyHoverEmphasis() {
+      const hoveredNodeId = this._hoveredNodeId;
+      const hoveredNode = hoveredNodeId ? this.getNode(hoveredNodeId) : null;
+      const hoveredStroke = hoveredNode ? this._getNodeTypeHoverStroke(hoveredNode.type) : null;
+
+      for (const [id, nodeEl] of this._nodeElements) {
+        if (!hoveredNodeId) {
+          nodeEl.classList.remove('is-hover-focus', 'is-hover-dim');
+          continue;
+        }
+
+        const inNeighborhood = this._hoverNeighborIds.has(id);
+        nodeEl.classList.toggle('is-hover-focus', inNeighborhood);
+        nodeEl.classList.toggle('is-hover-dim', !inNeighborhood);
+      }
+
+      for (const edge of this.edges) {
+        const edgeGroup = this._edgeElements.get(edge.id);
+        const edgeLabel = this._edgeLabelElements.get(edge.id);
+        if (!edgeGroup) continue;
+        const edgePath = edgeGroup.querySelector('.alpine-flow__edge-path');
+        const baseStroke = edge.style?.stroke || 'var(--alpine-flow-edge-stroke, #333)';
+        const baseWidth = String(edge.style?.strokeWidth || 'var(--alpine-flow-edge-stroke-width, 1)');
+
+        if (!hoveredNodeId) {
+          edgeGroup.classList.remove('is-edge-focus', 'is-edge-dim');
+          edgeLabel?.classList.remove('is-edge-focus', 'is-edge-dim');
+          if (edgePath) {
+            edgePath.setAttribute('stroke', baseStroke);
+            edgePath.setAttribute('stroke-width', baseWidth);
+          }
+          continue;
+        }
+
+        const isConnected = edge.source === hoveredNodeId || edge.target === hoveredNodeId;
+        edgeGroup.classList.toggle('is-edge-focus', isConnected);
+        edgeGroup.classList.toggle('is-edge-dim', !isConnected);
+        edgeLabel?.classList.toggle('is-edge-focus', isConnected);
+        edgeLabel?.classList.toggle('is-edge-dim', !isConnected);
+
+        if (edgePath) {
+          if (isConnected) {
+            edgePath.setAttribute('stroke', hoveredStroke || baseStroke);
+            edgePath.setAttribute('stroke-width', '2');
+          } else {
+            edgePath.setAttribute('stroke', '#333');
+            edgePath.setAttribute('stroke-width', '1');
+          }
+        }
+      }
+    },
+
+    _getNodeTypeHoverStroke(nodeType) {
+      switch (nodeType) {
+        case 'input':
+          return '#4f8ff7';
+        case 'output':
+          return '#22c55e';
+        default:
+          return '#4f8ff7';
       }
     },
 
@@ -1034,6 +1369,7 @@ export default function AlpineFlow(Alpine) {
 
     _onNodeClickHandler(event, nodeId) {
       this._onNodeClick?.(event, this.getNode(nodeId));
+      this._maybeReheatForce(0.08);
     },
 
     // ──────────────────────────────────────────
@@ -1070,6 +1406,8 @@ export default function AlpineFlow(Alpine) {
         }
         this._renderEdge(edge);
       }
+
+      this._applyHoverEmphasis();
     },
 
     _renderEdge(edge) {
@@ -1194,6 +1532,7 @@ export default function AlpineFlow(Alpine) {
       this._updateNodeSelectionStyles();
       this._updateEdgeSelectionStyles();
       this._onEdgeClick?.(event, edge);
+      this._maybeReheatForce(0.08);
     },
 
     // ──────────────────────────────────────────
@@ -1220,6 +1559,7 @@ export default function AlpineFlow(Alpine) {
       this._backgroundComponent?.update();
       this._minimapComponent?.update();
       this._controlsComponent?.update();
+      this._maybeReheatForce(0.08);
     },
 
     zoomIn(options = {}) {
@@ -1244,6 +1584,7 @@ export default function AlpineFlow(Alpine) {
       this._minimapComponent?.update();
       this._controlsComponent?.update();
       this._onViewportChange?.(this.viewport);
+      this._maybeReheatForce(0.1);
     },
 
     panBy(delta) {
@@ -1255,6 +1596,7 @@ export default function AlpineFlow(Alpine) {
       this._applyViewportTransform();
       this._backgroundComponent?.update();
       this._minimapComponent?.update();
+      this._maybeReheatForce(0.08);
     },
 
     screenToFlowPosition(pos) {
@@ -1287,6 +1629,7 @@ export default function AlpineFlow(Alpine) {
       this._initNodeLookup();
       this._renderAllNodes();
       this._minimapComponent?.update();
+      this._refreshForceGraphData({ restart: true, reheat: true });
     },
 
     addEdges(newEdges) {
@@ -1298,6 +1641,7 @@ export default function AlpineFlow(Alpine) {
       this.edges = edges;
       this._initNodeLookup();
       this._renderAllEdges();
+      this._refreshForceGraphData({ restart: true, reheat: true });
     },
 
     deleteSelectedElements() {
@@ -1368,6 +1712,7 @@ export default function AlpineFlow(Alpine) {
       this._backgroundComponent?.update();
       this._minimapComponent?.update();
       this._controlsComponent?.update();
+      this._refreshForceGraphData({ restart: true, reheat: true });
     },
 
     layoutNodesAndRender(opts = {}) {
@@ -1402,6 +1747,58 @@ export default function AlpineFlow(Alpine) {
       this._renderAllEdges();
       this._minimapComponent?.update();
       requestAnimationFrame(() => this.fitView());
+      this._refreshForceGraphData({ restart: true, reheat: true });
+    },
+
+    startForce() {
+      if (!this._isForceEnabled()) return;
+      if (!this._forceSimulation) {
+        this._initForceSimulation();
+      }
+      this._forceSimulation?.start((state) => this._onForceTick(state));
+    },
+
+    stopForce() {
+      this._forceSimulation?.stop();
+    },
+
+    reheatForce(alpha = 0.2) {
+      this._maybeReheatForce(alpha);
+    },
+
+    setForceOptions(opts = {}) {
+      const current = this.options.forceLayout;
+      this.options.forceLayout = {
+        ...(current && current !== true ? current : {}),
+        ...opts,
+      };
+
+      if (!this._isForceEnabled()) {
+        this._destroyForceSimulation();
+        return;
+      }
+
+      if (!this._forceSimulation) {
+        this._initForceSimulation();
+        return;
+      }
+
+      this._refreshForceGraphData({ restart: true, reheat: true });
+      this._updateAmbientLoop();
+    },
+
+    pinNode(id, point = null) {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+      const node = this._nodeLookup.get(id) || this.getNode(id);
+      if (!node) return;
+      const absPos = node.internals?.positionAbsolute ?? node.position;
+      this._forceSimulation.pinNode(id, point?.x ?? absPos.x, point?.y ?? absPos.y);
+    },
+
+    unpinNode(id) {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+      this._forceSimulation.unpinNode(id);
+      this._maybeReheatForce(0.1);
     },
   }));
 }
@@ -1475,6 +1872,8 @@ AlpineFlow.applyPrecedence = applyPrecedence;
 AlpineFlow.clearPrecedence = clearPrecedence;
 AlpineFlow.layoutNodes = layoutNodes;
 AlpineFlow.LAYOUT_DEFAULTS = LAYOUT_DEFAULTS;
+AlpineFlow.createForceSimulation = createForceSimulation;
+AlpineFlow.FORCE_DEFAULTS = FORCE_DEFAULTS;
 
 // ─── Named Exports (for advanced usage) ─────────────────────
 
@@ -1497,6 +1896,8 @@ export {
   getHandlePosition, getEdgePosition,
   // Layout
   layoutNodes, LAYOUT_DEFAULTS,
+  // Force
+  createForceSimulation, FORCE_DEFAULTS,
   // Precedence
   parsePrecedence, applyPrecedence, clearPrecedence,
 };

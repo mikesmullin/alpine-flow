@@ -167,6 +167,9 @@ alpineFlow({
     // Auto Layout
     autoLayout: false,         // true | object (see Auto Layout section)
 
+    // Force Layout (dependency-free simulation)
+    forceLayout: false,        // true | object (see Force Layout section)
+
     // Precedence (graph pre-filter — selectors, wildcards, cycle-breaking)
     precedence: null,          // string DSL e.g. "** > :Team" (see Precedence section)
 
@@ -301,6 +304,12 @@ The `onInit` callback receives an API object. You can also get it any time via `
 | `fromJSON(json)` | Restore graph state from a `toJSON()` object |
 | `layoutNodes(options?)` | Run auto-layout on all nodes. Options: `{ direction, nodeSpacing, rankSpacing, force }`. Pass `force: true` to re-layout even nodes that have positions |
 | `toggleInteractivity()` | Toggle dragging, connecting, and selection on/off |
+| `startForce()` | Start force simulation if `options.forceLayout` is enabled |
+| `stopForce()` | Stop force simulation loop |
+| `reheatForce(alpha?)` | Reheat simulation energy (default `0.2`) |
+| `setForceOptions(opts)` | Merge and apply force options at runtime |
+| `pinNode(id, point?)` | Pin a node in force simulation at current or explicit `{ x, y }` |
+| `unpinNode(id)` | Unpin a node in force simulation |
 
 ---
 
@@ -428,6 +437,79 @@ import { layoutNodes } from 'alpine-flow/layout';
 
 const positioned = layoutNodes(myNodes, myEdges, { direction: 'LR' });
 ```
+
+---
+
+## Force Layout
+
+Alpine Flow now supports an optional, dependency-free force simulation (`src/force.js`).
+When enabled, it runs a link + charge + collision + centering model and updates node positions in the existing DOM fast path.
+
+### Defaults and lifecycle
+
+- Disabled by default (`forceLayout: false`)
+- If enabled, simulation auto-starts unless `autoStart: false`
+- Simulation stops automatically when energy (`alpha`) cools below threshold
+- Interactions (drag/zoom/click) can reheat it for responsive motion
+- Nodes are pinned only during active drag by default, then unpinned on drag end
+
+### Enable on init
+
+```js
+alpineFlow({
+  nodes,
+  edges,
+  options: {
+    fitView: true,
+    forceLayout: true,
+  },
+})
+```
+
+### Force options
+
+```js
+options: {
+  forceLayout: {
+    enabled: true,
+    autoStart: true,
+    linkDistance: 100,
+    linkStrength: 0.08,
+    chargeStrength: -300,
+    collisionRadius: 45,
+    centerStrength: 0.02,
+    alpha: 0.3,
+    alphaMin: 0.002,
+    alphaDecay: 0.04,
+    alphaTarget: 0,
+    velocityDecay: 0.2,
+  },
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Turns force mode on/off |
+| `autoStart` | `true` | Starts simulation automatically when enabled |
+| `linkDistance` | `100` | Target spring distance between linked nodes |
+| `linkStrength` | `0.08` | Link spring strength |
+| `chargeStrength` | `-300` | Many-body repulsion strength |
+| `collisionRadius` | `45` | Collision radius per node |
+| `centerStrength` | `0.02` | Weak centering pull toward origin |
+| `alpha` | `0.3` | Initial simulation energy |
+| `alphaMin` | `0.002` | Cool-down stop threshold |
+| `alphaDecay` | `0.04` | Rate at which energy cools |
+| `alphaTarget` | `0` | Target energy level |
+| `velocityDecay` | `0.2` | Velocity damping factor |
+
+### Hover emphasis behavior
+
+Hover emphasis applies in all modes (not only force mode):
+
+- Hovered node + 1-hop neighbors are highlighted
+- Non-neighbor nodes are dimmed
+- Edges connected to hovered node are emphasized
+- Non-connected edges/labels are dimmed
 
 ---
 
@@ -907,6 +989,32 @@ Also exports `LAYOUT_DEFAULTS` (the default options object).
 
 ---
 
+### `src/force.js`
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `createForceSimulation(options?)` | `(object?)` | Simulation controller object |
+
+Controller methods:
+
+| Method | Description |
+|--------|-------------|
+| `setNodes(nodes)` | Set/reconcile simulation nodes |
+| `setEdges(edges)` | Set/reconcile simulation links |
+| `setOptions(opts)` | Merge runtime force options |
+| `reheat(alphaTarget?)` | Reheat simulation energy and resume if stopped |
+| `tick(dt?)` | Advance one simulation tick |
+| `start(onTick?)` | Start RAF simulation loop |
+| `stop()` | Stop RAF simulation loop |
+| `pinNode(id, x, y)` | Pin node to fixed coordinates |
+| `movePinnedNode(id, x, y)` | Move pinned node during drag |
+| `unpinNode(id)` | Release node pin |
+| `getState()` | Read `{ alpha, running, options, nodes, links }` |
+
+Also exports `FORCE_DEFAULTS`.
+
+---
+
 ## CSS Class Reference
 
 | Class | Applied to | Purpose |
@@ -920,6 +1028,8 @@ Also exports `LAYOUT_DEFAULTS` (the default options object).
 | `.alpine-flow__node` | Each node | Positioned via `transform: translate(x,y)` |
 | `.alpine-flow__node.selected` | Selected node | Highlighted border/shadow |
 | `.alpine-flow__node.dragging` | Dragging node | Slightly elevated shadow |
+| `.alpine-flow__node.is-hover-focus` | Hover-neighborhood node | Full opacity while focused |
+| `.alpine-flow__node.is-hover-dim` | Non-neighborhood node | Dimmed during hover focus |
 | `.alpine-flow__node-default` | Default type | Type-specific class |
 | `.alpine-flow__node-input` | Input type | Type-specific class |
 | `.alpine-flow__node-output` | Output type | Type-specific class |
@@ -930,9 +1040,12 @@ Also exports `LAYOUT_DEFAULTS` (the default options object).
 | `.alpine-flow__edge` | Each edge group | SVG `<g>` for one edge |
 | `.alpine-flow__edge.animated` | Animated edge | Dashed stroke animation |
 | `.alpine-flow__edge.selected` | Selected edge | Highlighted color |
+| `.alpine-flow__edge.is-edge-focus` | Hover-connected edge | Emphasized stroke/opacity |
+| `.alpine-flow__edge.is-edge-dim` | Non-hover edge | Dimmed during hover focus |
 | `.alpine-flow__edge-path` | Visible path | The rendered stroke |
 | `.alpine-flow__edge-interaction` | Hit area path | Invisible wider stroke for clicking |
 | `.alpine-flow__edge-label` | Edge label | Positioned at path midpoint |
+| `.alpine-flow__edge-label-container.is-edge-dim` | Edge label container | Dimmed label during hover focus |
 | `.alpine-flow__background` | Background SVG | Grid overlay |
 | `.alpine-flow__controls` | Controls panel | Button group |
 | `.alpine-flow__minimap` | Minimap SVG | Overview panel |

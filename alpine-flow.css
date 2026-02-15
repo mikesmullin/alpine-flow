@@ -17,8 +17,8 @@
   --alpine-flow-handle-bg: #4f8ff7;
   --alpine-flow-handle-border: #1a1a2e;
   --alpine-flow-handle-size: 10px;
-  --alpine-flow-edge-stroke: #4a5568;
-  --alpine-flow-edge-stroke-width: 2;
+  --alpine-flow-edge-stroke: #333;
+  --alpine-flow-edge-stroke-width: 1;
   --alpine-flow-edge-selected-stroke: #4f8ff7;
   --alpine-flow-edge-selected-stroke-width: 2.5;
   --alpine-flow-controls-bg: #16213e;
@@ -114,7 +114,7 @@
   min-width: 120px;
   box-shadow: var(--alpine-flow-node-box-shadow);
   cursor: grab;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.2s ease;
   transform-origin: 0 0;
 }
 
@@ -132,6 +132,14 @@
 
 .alpine-flow__node.not-draggable {
   cursor: default;
+}
+
+.alpine-flow__node.is-hover-focus {
+  opacity: 1;
+}
+
+.alpine-flow__node.is-hover-dim {
+  opacity: 0.3;
 }
 
 .alpine-flow__node-header {
@@ -207,13 +215,24 @@
 .alpine-flow__edge-path {
   stroke: var(--alpine-flow-edge-stroke);
   stroke-width: var(--alpine-flow-edge-stroke-width);
+  opacity: 0.4;
   fill: none;
-  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
 }
 
 .alpine-flow__edge.selected .alpine-flow__edge-path {
   stroke: var(--alpine-flow-edge-selected-stroke);
   stroke-width: var(--alpine-flow-edge-selected-stroke-width);
+}
+
+.alpine-flow__edge.is-edge-focus .alpine-flow__edge-path {
+  opacity: 0.8;
+  stroke-width: 2;
+}
+
+.alpine-flow__edge.is-edge-dim .alpine-flow__edge-path {
+  opacity: 0.1;
+  stroke-width: 1;
 }
 
 .alpine-flow__edge.animated .alpine-flow__edge-path {
@@ -249,6 +268,18 @@
   transform: translate(-50%, -50%);
   left: 50%;
   top: 50%;
+}
+
+.alpine-flow__edge-label-container {
+  transition: opacity 0.2s ease;
+}
+
+.alpine-flow__edge-label-container.is-edge-focus {
+  opacity: 1;
+}
+
+.alpine-flow__edge-label-container.is-edge-dim {
+  opacity: 0.3;
 }
 
 /* ── Connection Line ────────────────────────────────────────── */
