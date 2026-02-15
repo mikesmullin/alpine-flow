@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpine Flow — Icons Demo</title>
+
+  <link rel="stylesheet" href="../stylesheets/alpine-flow.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../vendor/lucide/lucide.min.js"></script>
+
+  <style>
+    html, body { margin: 0; height: 100%; }
+    .alpine-flow { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    #flow-container {
+      --alpine-flow-bg: #18181b;
+      --alpine-flow-bg-pattern-color: rgba(255, 255, 255, 0.14);
+      --alpine-flow-node-bg: #27272a;
+      --alpine-flow-node-border: #3f3f46;
+      --alpine-flow-node-color: #f4f4f5;
+      --alpine-flow-edge-stroke: #71717a;
+      --alpine-flow-edge-selected-stroke: #a1a1aa;
+      --alpine-flow-node-selected-border: #a1a1aa;
+      --alpine-flow-node-selected-box-shadow: 0 0 0 2px rgba(161, 161, 170, 0.35), 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+      --alpine-flow-handle-bg: #a1a1aa;
+      --alpine-flow-handle-border: #18181b;
+      --alpine-flow-minimap-node: #71717a;
+      --alpine-flow-minimap-node-selected: #a1a1aa;
+      --alpine-flow-hover-edge-stroke: #a1a1aa;
+      --alpine-flow-controls-bg: #18181b;
+      --alpine-flow-controls-border: #3f3f46;
+      --alpine-flow-controls-color: #f4f4f5;
+      --alpine-flow-controls-button-hover: #27272a;
+      --alpine-flow-minimap-bg: rgba(24, 24, 27, 0.88);
+      --alpine-flow-minimap-border: #3f3f46;
+    }
+
+    #flow-container .alpine-flow__background {
+      z-index: 0 !important;
+      opacity: 1;
+    }
+
+    #flow-container .alpine-flow__renderer {
+      z-index: 1;
+    }
+
+    #flow-container .alpine-flow__node-person {
+      background: #2563eb;
+      border-color: #1d4ed8;
+      color: #eff6ff;
+    }
+
+    #flow-container .alpine-flow__node-team {
+      background: #059669;
+      border-color: #047857;
+      color: #ecfdf5;
+    }
+
+    #flow-container .alpine-flow__node-product {
+      background: #d97706;
+      border-color: #b45309;
+      color: #fffbeb;
+    }
+
+    #flow-container .alpine-flow__node-system {
+      background: #7c3aed;
+      border-color: #6d28d9;
+      color: #f5f3ff;
+    }
+
+    #flow-container .alpine-flow__node-output {
+      background: #0f766e;
+      border-color: #115e59;
+      color: #f0fdfa;
+    }
+  </style>
+</head>
+<body class="bg-zinc-900 text-zinc-100">
+  <header class="fixed top-0 left-0 right-0 z-50 flex items-center gap-2 px-4 py-2 bg-zinc-900/90 backdrop-blur border-b border-zinc-800">
+    <h1 class="text-sm font-semibold tracking-wide text-gray-200">Alpine Flow — Icon Variants</h1>
+    <span class="text-xs text-gray-500">label-only • icon-only • icon+label</span>
+    <div class="flex-1"></div>
+    <button id="btn-fit" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition">Fit</button>
+  </header>
+
+  <div id="flow-container"
+    class="w-full"
+    style="height: 100vh; padding-top: 42px;"
+    x-data="alpineFlow({
+      nodes: [
+        { id: 'n1', type: 'input',   position: { x: 40, y: 60 },  data: { label: 'Ingest', icon: 'database', iconMode: 'icon-label' } },
+        { id: 'n2', type: 'person',  position: { x: 250, y: 40 }, data: { label: 'Person A', icon: 'user', iconMode: 'icon-label' } },
+        { id: 'n3', type: 'team',    position: { x: 250, y: 170 }, data: { label: 'Team Alpha', icon: 'users', iconMode: 'icon-label' } },
+        { id: 'n4', type: 'product', position: { x: 470, y: 20 }, data: { label: 'Product X', icon: 'box', iconMode: 'icon-label' } },
+        { id: 'n5', type: 'product', position: { x: 470, y: 140 }, data: { label: 'Product Y', icon: 'package', iconMode: 'icon-label' } },
+        { id: 'n6', type: 'system',  position: { x: 470, y: 270 }, data: { icon: 'cpu', iconMode: 'icon' } },
+        { id: 'n7', type: 'team',    position: { x: 690, y: 0 }, data: { label: 'Ops', icon: 'wrench', iconMode: 'icon-label' } },
+        { id: 'n8', type: 'person',  position: { x: 690, y: 110 }, data: { label: 'Reviewer', icon: 'search-check', iconMode: 'icon-label' } },
+        { id: 'n9', type: 'system',  position: { x: 690, y: 235 }, data: { icon: 'sparkles', iconMode: 'icon' } },
+        { id: 'n10', type: 'output', position: { x: 920, y: 70 }, data: { label: 'Publish', icon: 'send', iconMode: 'icon-label' } },
+        { id: 'n11', type: 'output', position: { x: 920, y: 210 }, data: { icon: 'bell-ring', iconMode: 'icon' } },
+        { id: 'n12', type: 'system', position: { x: 920, y: 320 }, data: { label: 'Archive', icon: 'archive', iconMode: 'icon-label' } },
+      ],
+      edges: [
+        { id: 'e1-2', source: 'n1', target: 'n2', animated: true },
+        { id: 'e1-3', source: 'n1', target: 'n3' },
+        { id: 'e2-4', source: 'n2', target: 'n4' },
+        { id: 'e2-5', source: 'n2', target: 'n5' },
+        { id: 'e3-5', source: 'n3', target: 'n5', type: 'smoothstep' },
+        { id: 'e3-6', source: 'n3', target: 'n6', type: 'smoothstep' },
+        { id: 'e4-7', source: 'n4', target: 'n7' },
+        { id: 'e5-8', source: 'n5', target: 'n8' },
+        { id: 'e6-9', source: 'n6', target: 'n9', type: 'step' },
+        { id: 'e7-10', source: 'n7', target: 'n10' },
+        { id: 'e8-10', source: 'n8', target: 'n10' },
+        { id: 'e8-11', source: 'n8', target: 'n11', animated: true },
+        { id: 'e9-11', source: 'n9', target: 'n11', type: 'smoothstep' },
+        { id: 'e9-12', source: 'n9', target: 'n12', type: 'straight' }
+      ],
+      options: {
+        fitView: true,
+        showBackground: true,
+        showControls: true,
+        showMinimap: true,
+        background: { variant: 'dots', gap: 20, size: 1, color: 'rgba(255,255,255,0.07)' },
+        forceLayout: {
+          enabled: true,
+          autoStart: true,
+          linkDistance: 100,
+          chargeStrength: -300,
+          collisionRadius: 45,
+          centerStrength: 0.05,
+        }
+      },
+      onInit(api) {
+        window.__iconDemo = api;
+      }
+    })">
+  </div>
+
+  <script type="module">
+    import Alpine from 'https://esm.sh/alpinejs@3.14.8';
+    import AlpineFlow from '../src/index.js';
+
+    Alpine.plugin(AlpineFlow);
+    window.Alpine = Alpine;
+    Alpine.start();
+
+    document.getElementById('btn-fit').addEventListener('click', () => {
+      const el = document.getElementById('flow-container');
+      Alpine.$data(el)?.fitView();
+    });
+  </script>
+</body>
+</html>

@@ -363,21 +363,21 @@ export function createNodeDragHandler(getState, callbacks) {
 export const defaultNodeTypes = {
   default(node) {
     return `
-      <div class="alpine-flow__node-header">${node.data?.label ?? node.id}</div>
+      ${renderNodeBody(node)}
       ${renderHandles(node, ['target', 'source'])}
     `;
   },
 
   input(node) {
     return `
-      <div class="alpine-flow__node-header">${node.data?.label ?? node.id}</div>
+      ${renderNodeBody(node)}
       ${renderHandles(node, ['source'])}
     `;
   },
 
   output(node) {
     return `
-      <div class="alpine-flow__node-header">${node.data?.label ?? node.id}</div>
+      ${renderNodeBody(node)}
       ${renderHandles(node, ['target'])}
     `;
   },
@@ -388,6 +388,35 @@ export const defaultNodeTypes = {
     `;
   },
 };
+
+function renderNodeBody(node) {
+  const label = node.data?.label ?? node.id;
+  const icon = node.data?.icon;
+  const mode = node.data?.iconMode || (icon ? 'icon-label' : 'label');
+
+  const iconHtml = icon
+    ? `<span class="alpine-flow__node-icon" aria-hidden="true"><i data-lucide="${icon}"></i></span>`
+    : '';
+
+  if (mode === 'icon' && icon) {
+    return `
+      <div class="alpine-flow__node-title alpine-flow__node-title-icon-only">
+        ${iconHtml}
+      </div>
+    `;
+  }
+
+  if (mode === 'icon-label' && icon) {
+    return `
+      <div class="alpine-flow__node-title alpine-flow__node-title-icon-label">
+        ${iconHtml}
+        <div class="alpine-flow__node-header">${label}</div>
+      </div>
+    `;
+  }
+
+  return `<div class="alpine-flow__node-header">${label}</div>`;
+}
 
 function renderHandles(node, types) {
   let html = '';

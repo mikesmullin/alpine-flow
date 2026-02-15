@@ -149,6 +149,45 @@
   white-space: nowrap;
 }
 
+.alpine-flow__node-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alpine-flow__node-title-icon-only {
+  justify-content: center;
+}
+
+.alpine-flow__node.icon-only {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.alpine-flow__node.icon-only .alpine-flow__node-title {
+  gap: 0;
+}
+
+.alpine-flow__node-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--alpine-flow-node-color);
+}
+
+.alpine-flow__node-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 .alpine-flow__group-header {
   font-size: 11px;
   text-transform: uppercase;

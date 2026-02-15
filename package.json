@@ -7,7 +7,7 @@
   "module": "src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./css": "./alpine-flow.css",
+    "./css": "./stylesheets/alpine-flow.css",
     "./geometry": "./src/geometry.js",
     "./edges": "./src/edges.js",
     "./graph": "./src/graph.js",
@@ -22,7 +22,7 @@
   },
   "files": [
     "src/",
-    "alpine-flow.css"
+    "stylesheets/"
   ],
   "keywords": [
     "alpine",

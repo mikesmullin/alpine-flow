@@ -30,7 +30,7 @@ A high-performance, drop-in graph/node editor for [Alpine.js](https://alpinejs.d
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="stylesheet" href="alpine-flow.css" />
+  <link rel="stylesheet" href="stylesheets/alpine-flow.css" />
   <style> html, body { margin: 0; height: 100%; } </style>
 </head>
 <body>
@@ -75,7 +75,7 @@ Alpine.plugin(AlpineFlow);
 Alpine.start();
 ```
 
-Then include `alpine-flow.css` in your HTML or import it in your CSS pipeline.
+Then include `stylesheets/alpine-flow.css` in your HTML or import it in your CSS pipeline.
 
 ---
 
@@ -232,6 +232,22 @@ alpineFlow({
   dragHandle: null,                // CSS selector for drag-handle sub-element
   handles: null,                   // Programmatic handle definitions (advanced)
 }
+```
+
+### Node icons
+
+Built-in node renderers support three display modes via `node.data`:
+
+- label only (default)
+- icon + label (`iconMode: 'icon-label'`)
+- icon only (`iconMode: 'icon'`)
+
+Provide an icon name with `data.icon` (Lucide icon key), and load Lucide on the page (for example `vendor/lucide/lucide.min.js`).
+
+```js
+{ id: 'a', type: 'default', position: { x: 0, y: 0 }, data: { label: 'Validate' } }
+{ id: 'b', type: 'default', position: { x: 200, y: 0 }, data: { label: 'Notify', icon: 'bell', iconMode: 'icon-label' } }
+{ id: 'c', type: 'output',  position: { x: 400, y: 0 }, data: { icon: 'send', iconMode: 'icon' } }
 ```
 
 ### Edge

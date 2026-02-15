@@ -1189,7 +1189,7 @@ export default function AlpineFlow(Alpine) {
 
         if (!nodeEl) {
           nodeEl = createElement('div', {
-            className: `alpine-flow__node alpine-flow__node-${node.type || 'default'} ${node.className || ''} ${node.selected ? 'selected' : ''} ${node.draggable === false ? 'not-draggable' : ''}`.trim(),
+            className: `alpine-flow__node alpine-flow__node-${node.type || 'default'} ${node.data?.iconMode === 'icon' ? 'icon-only' : ''} ${node.className || ''} ${node.selected ? 'selected' : ''} ${node.draggable === false ? 'not-draggable' : ''}`.trim(),
             'data-id': node.id,
             style: {
               position: 'absolute',
@@ -1206,6 +1206,8 @@ export default function AlpineFlow(Alpine) {
           } else {
             nodeEl.innerHTML = `<div class="alpine-flow__node-header">${node.data?.label ?? node.id}</div>`;
           }
+
+          this._hydrateNodeIcons(nodeEl);
 
           // Set up drag
           if (node.draggable !== false && this.options.nodesDraggable) {
@@ -1254,6 +1256,7 @@ export default function AlpineFlow(Alpine) {
           nodeEl.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
           nodeEl.style.zIndex = String(enriched?.internals?.z ?? 0);
           nodeEl.classList.toggle('selected', !!node.selected);
+          nodeEl.classList.toggle('icon-only', node.data?.iconMode === 'icon');
         }
       }
 
@@ -1274,6 +1277,21 @@ export default function AlpineFlow(Alpine) {
       }
 
       this._applyHoverEmphasis();
+    },
+
+    _hydrateNodeIcons(nodeEl) {
+      if (!nodeEl) return;
+      if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+      try {
+        window.lucide.createIcons({
+          attrs: {
+            width: '16',
+            height: '16',
+            strokeWidth: '2',
+          },
+        });
+      } catch (error) {
+      }
     },
 
     _applyHoverEmphasis() {
@@ -1329,6 +1347,11 @@ export default function AlpineFlow(Alpine) {
     },
 
     _getNodeTypeHoverStroke(nodeType) {
+      const cssStroke = this._containerEl
+        ? getComputedStyle(this._containerEl).getPropertyValue('--alpine-flow-hover-edge-stroke').trim()
+        : '';
+      if (cssStroke) return cssStroke;
+
       switch (nodeType) {
         case 'input':
           return '#4f8ff7';
