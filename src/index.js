@@ -143,6 +143,7 @@ export default function AlpineFlow(Alpine) {
     _boundVisibilityChange: null,
     _ambientPhase: 0,
     _ambientIntervalId: null,
+    _persistentPinnedNodeIds: new Set(),
 
     // User callbacks
     _onConnect: config.onConnect || null,
@@ -529,6 +530,7 @@ export default function AlpineFlow(Alpine) {
       this._forceSimulation.setOptions(this._getForceLayoutOptions());
       this._forceSimulation.setNodes(visibleNodes);
       this._forceSimulation.setEdges(visibleEdges);
+      this._applyPersistentPins();
       this._syncForceAnchorNode();
       this._updateAmbientLoop();
 
@@ -598,6 +600,16 @@ export default function AlpineFlow(Alpine) {
       this._forceSimulation.pinNode(anchorNodeId, centerFlowPos.x, centerFlowPos.y);
     },
 
+    _applyPersistentPins() {
+      if (!this._forceSimulation || !this._isForceEnabled()) return;
+      for (const nodeId of this._persistentPinnedNodeIds) {
+        const node = this._nodeLookup.get(nodeId) || this.getNode(nodeId);
+        if (!node || node.hidden) continue;
+        const absPos = node.internals?.positionAbsolute ?? node.position;
+        this._forceSimulation.pinNode(nodeId, absPos.x, absPos.y);
+      }
+    },
+
     _stopAmbientLoop() {
       if (!this._ambientIntervalId) return;
       clearInterval(this._ambientIntervalId);
@@ -637,6 +649,12 @@ export default function AlpineFlow(Alpine) {
     _initNodeLookup() {
       this._nodeLookup = buildNodeLookup(this.nodes, this._nodeLookup);
       this._edgeLookup = new Map(this.edges.map((e) => [e.id, e]));
+      const nodeIds = new Set(this.nodes.map((node) => node.id));
+      for (const nodeId of this._persistentPinnedNodeIds) {
+        if (!nodeIds.has(nodeId)) {
+          this._persistentPinnedNodeIds.delete(nodeId);
+        }
+      }
     },
 
     // ──────────────────────────────────────────
@@ -691,6 +709,7 @@ export default function AlpineFlow(Alpine) {
           onNodeDragStart: (event, nodeId, nodes) => {
             if (this._isForceEnabled() && this._forceSimulation) {
               for (const node of nodes) {
+                this._persistentPinnedNodeIds.delete(node.id);
                 const currentNode = this._nodeLookup.get(node.id) || node;
                 const absPos = currentNode.internals?.positionAbsolute ?? currentNode.position;
                 this._forceSimulation.pinNode(node.id, absPos.x, absPos.y);
@@ -706,12 +725,27 @@ export default function AlpineFlow(Alpine) {
           onNodeDragStop: (event, nodeId, nodes) => {
             if (this._isForceEnabled() && this._forceSimulation) {
               for (const node of nodes) {
-                this._forceSimulation.unpinNode(node.id);
+                if (this._persistentPinnedNodeIds.has(node.id)) {
+                  const currentNode = this._nodeLookup.get(node.id) || node;
+                  const absPos = currentNode.internals?.positionAbsolute ?? currentNode.position;
+                  this._forceSimulation.pinNode(node.id, absPos.x, absPos.y);
+                } else {
+                  this._forceSimulation.unpinNode(node.id);
+                }
               }
               this._syncForceAnchorNode();
               this._forceSimulation.setAlphaTarget(0);
             }
             this._onNodeDragStop?.(event, this.getNode(nodeId), nodes);
+          },
+          onDragHold: (nodeId) => {
+            if (!this._isForceEnabled() || !this._forceSimulation) return;
+            const currentNode = this._nodeLookup.get(nodeId) || this.getNode(nodeId);
+            if (!currentNode || currentNode.hidden) return;
+            const absPos = currentNode.internals?.positionAbsolute ?? currentNode.position;
+            this._persistentPinnedNodeIds.add(nodeId);
+            this._forceSimulation.pinNode(nodeId, absPos.x, absPos.y);
+            this._playPinFeedback(nodeId);
           },
           onPositionChange: (changes, isFinal) => {
             this._applyPositionChanges(changes, isFinal);
@@ -1358,6 +1392,22 @@ export default function AlpineFlow(Alpine) {
       }
     },
 
+    _playPinFeedback(nodeId) {
+      const nodeEl = this._nodeElements.get(nodeId);
+      if (!nodeEl) return;
+
+      nodeEl.classList.remove('is-pin-confirmed');
+      void nodeEl.offsetWidth;
+      nodeEl.classList.add('is-pin-confirmed');
+
+      const onAnimationEnd = () => {
+        nodeEl.classList.remove('is-pin-confirmed');
+        nodeEl.removeEventListener('animationend', onAnimationEnd);
+      };
+
+      nodeEl.addEventListener('animationend', onAnimationEnd);
+    },
+
     _getNodeTypeHoverStroke(nodeType) {
       const cssStroke = this._containerEl
         ? getComputedStyle(this._containerEl).getPropertyValue('--alpine-flow-hover-edge-stroke').trim()
@@ -1827,11 +1877,13 @@ export default function AlpineFlow(Alpine) {
       const node = this._nodeLookup.get(id) || this.getNode(id);
       if (!node) return;
       const absPos = node.internals?.positionAbsolute ?? node.position;
+      this._persistentPinnedNodeIds.add(id);
       this._forceSimulation.pinNode(id, point?.x ?? absPos.x, point?.y ?? absPos.y);
     },
 
     unpinNode(id) {
       if (!this._forceSimulation || !this._isForceEnabled()) return;
+      this._persistentPinnedNodeIds.delete(id);
       this._forceSimulation.unpinNode(id);
       this._maybeReheatForce(0.1);
     },

@@ -94,6 +94,9 @@ export function createNodeResizeObserver(onMeasure) {
  * @returns {{ onPointerDown: Function, destroy: Function }}
  */
 export function createNodeDragHandler(getState, callbacks) {
+  const HOLD_TO_PIN_DELAY_MS = 500;
+  const HOLD_TO_PIN_TOLERANCE_PX = 2;
+
   let isDragging = false;
   let dragNodeId = null;
   let dragItems = new Map(); // nodeId → { node, distance: {x, y}, startPosition: {x, y} }
@@ -102,6 +105,42 @@ export function createNodeDragHandler(getState, callbacks) {
   let containerBounds = null;
   let startMousePosition = null;
   let autoPanId = null;
+  let holdTimerId = null;
+  let holdAnchor = null;
+  let holdTriggered = false;
+
+  function clearHoldTimer() {
+    if (holdTimerId) {
+      clearTimeout(holdTimerId);
+      holdTimerId = null;
+    }
+  }
+
+  function armHoldTimer(clientX, clientY) {
+    if (!isDragging || holdTriggered || !dragNodeId) return;
+    clearHoldTimer();
+    holdAnchor = { x: clientX, y: clientY };
+    holdTimerId = setTimeout(() => {
+      holdTimerId = null;
+      if (!isDragging || holdTriggered || !dragNodeId) return;
+      holdTriggered = true;
+      callbacks.onDragHold?.(dragNodeId, Array.from(dragItems.values()).map((d) => d.node));
+    }, HOLD_TO_PIN_DELAY_MS);
+  }
+
+  function updateHoldTimer(clientX, clientY) {
+    if (!isDragging || holdTriggered) return;
+    if (!holdAnchor) {
+      armHoldTimer(clientX, clientY);
+      return;
+    }
+
+    const dx = clientX - holdAnchor.x;
+    const dy = clientY - holdAnchor.y;
+    if (Math.abs(dx) > HOLD_TO_PIN_TOLERANCE_PX || Math.abs(dy) > HOLD_TO_PIN_TOLERANCE_PX) {
+      armHoldTimer(clientX, clientY);
+    }
+  }
 
   function onPointerDown(event, nodeId) {
     const state = getState();
@@ -190,7 +229,9 @@ export function createNodeDragHandler(getState, callbacks) {
       if (Math.sqrt(dx * dx + dy * dy) < threshold) return;
 
       isDragging = true;
+      holdTriggered = false;
       callbacks.onNodeDragStart?.(event, dragNodeId, Array.from(dragItems.values()).map((d) => d.node));
+      armHoldTimer(clientX, clientY);
 
       // Start auto-pan loop
       startAutoPan(state);
@@ -204,6 +245,8 @@ export function createNodeDragHandler(getState, callbacks) {
 
     const flowX = (mousePosition.x - viewport.x) / viewport.zoom;
     const flowY = (mousePosition.y - viewport.y) / viewport.zoom;
+
+    updateHoldTimer(clientX, clientY);
 
     // Apply snap for multi-node
     const snapGrid = options.snapToGrid ? (options.snapGrid ?? DEFAULTS.snapGrid) : null;
@@ -326,6 +369,7 @@ export function createNodeDragHandler(getState, callbacks) {
       cancelAnimationFrame(autoPanId);
       autoPanId = null;
     }
+    clearHoldTimer();
 
     if (isDragging) {
       // Final position update with dragging: false
@@ -344,12 +388,15 @@ export function createNodeDragHandler(getState, callbacks) {
     dragNodeId = null;
     dragItems.clear();
     lastPos = null;
+    holdAnchor = null;
+    holdTriggered = false;
   }
 
   return {
     onPointerDown,
     destroy() {
       if (autoPanId) cancelAnimationFrame(autoPanId);
+      clearHoldTimer();
     },
   };
 }
