@@ -145,6 +145,7 @@ export default function AlpineFlow(Alpine) {
     _ambientIntervalId: null,
     _persistentPinnedNodeIds: new Set(),
     _autoLayoutOptionsCache: null,
+    _lastNodePointerDown: null,
 
     // User callbacks
     _onConnect: config.onConnect || null,
@@ -315,12 +316,15 @@ export default function AlpineFlow(Alpine) {
       // Pane click handler
       pane.addEventListener('pointerdown', (event) => this._onPanePointerDown(event));
       pane.addEventListener('click', (event) => {
-        if (event.target === pane || event.target.classList.contains('alpine-flow__pane')) {
-          this._setHoveredNode(null);
-          this._deselectAll();
-          this._onPaneClick?.(event);
-          this._maybeReheatForce(0.06);
-        }
+        const clickedInsideInteractiveElement = !!event.target.closest(
+          '.alpine-flow__node, .alpine-flow__edge, .alpine-flow__edge-label, .alpine-flow__handle'
+        );
+        if (clickedInsideInteractiveElement) return;
+
+        this._setHoveredNode(null);
+        this._deselectAll();
+        this._onPaneClick?.(event);
+        this._maybeReheatForce(0.06);
       });
 
       this._zoomPaneEl = zoomPane;
@@ -1491,6 +1495,11 @@ export default function AlpineFlow(Alpine) {
       if (!node) return;
 
       const isMultiSelect = event.shiftKey || event.metaKey || event.ctrlKey;
+      this._lastNodePointerDown = {
+        nodeId,
+        wasSelected: !!node.selected,
+        isMultiSelect,
+      };
 
       if (!isMultiSelect && !node.selected) {
         // Deselect all, then select this
@@ -1514,6 +1523,31 @@ export default function AlpineFlow(Alpine) {
     },
 
     _onNodeClickHandler(event, nodeId) {
+      const node = this.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      const pointerMeta = this._lastNodePointerDown;
+      const isSamePointerTarget = pointerMeta?.nodeId === nodeId;
+      const wasSelected = isSamePointerTarget ? !!pointerMeta.wasSelected : !!node.selected;
+      const isMultiSelect = isSamePointerTarget
+        ? !!pointerMeta.isMultiSelect
+        : (event.shiftKey || event.metaKey || event.ctrlKey);
+
+      if (wasSelected) {
+        if (isMultiSelect) {
+          // Shift/Cmd/Ctrl + click toggles this node out of the selection.
+          this.nodes = applyNodeChanges([{ type: 'select', id: nodeId, selected: false }], this.nodes);
+          this._initNodeLookup();
+          this._updateNodeSelectionStyles();
+        } else {
+          // Plain click on an already selected node deselects it.
+          this.nodes = applyNodeChanges([{ type: 'select', id: nodeId, selected: false }], this.nodes);
+          this._initNodeLookup();
+          this._updateNodeSelectionStyles();
+        }
+      }
+
+      this._lastNodePointerDown = null;
       this._onNodeClick?.(event, this.getNode(nodeId));
       this._maybeReheatForce(0.08);
     },
