@@ -19,7 +19,6 @@ import { createBackground } from './background.js';
 import { createControls } from './controls.js';
 import { createMinimap } from './minimap.js';
 import { layoutNodes, LAYOUT_DEFAULTS } from './layout.js';
-import { parsePrecedence, applyPrecedence, clearPrecedence } from './precedence.js';
 import { createForceSimulation, FORCE_DEFAULTS } from './force.js';
 
 const FORCE_LAYOUT_DEFAULTS = {
@@ -99,7 +98,6 @@ export default function AlpineFlow(Alpine) {
       minimapPanSensitivity: 0.02,
       isValidConnection: null,
       autoLayout: false,           // true | { direction, nodeSpacing, rankSpacing, ... }
-      precedence: null,              // string DSL e.g. "A > B & C > D"
       forceLayout: false,
       ...config.options,
     },
@@ -181,7 +179,6 @@ export default function AlpineFlow(Alpine) {
           : { ...this.options.autoLayout };
       }
 
-      this._applyPrecedence();
       this._applyAutoLayout();
       this._initNodeLookup();
       this._initPanZoom();
@@ -402,7 +399,6 @@ export default function AlpineFlow(Alpine) {
         layoutNodes: (opts) => this.layoutNodesAndRender(opts),
         setAutoLayoutEnabled: (enabled) => this.setAutoLayoutEnabled(enabled),
         getAutoLayoutEnabled: () => this.getAutoLayoutEnabled(),
-        setPrecedence: (str) => this.setPrecedence(str),
         startForce: () => this.startForce(),
         stopForce: () => this.stopForce(),
         reheatForce: (alpha) => this.reheatForce(alpha),
@@ -418,16 +414,6 @@ export default function AlpineFlow(Alpine) {
     _updateContainerDimensions() {
       this._containerWidth = this._containerEl.clientWidth;
       this._containerHeight = this._containerEl.clientHeight;
-    },
-
-    // ──────────────────────────────────────────
-    // Precedence Pre-Filter
-    // ──────────────────────────────────────────
-    _applyPrecedence() {
-      if (!this.options.precedence) return;
-      const rules = parsePrecedence(this.options.precedence);
-      if (!rules) return;
-      applyPrecedence(this.nodes, this.edges, rules);
     },
 
     getAutoLayoutEnabled() {
@@ -477,35 +463,6 @@ export default function AlpineFlow(Alpine) {
       this._refreshForceGraphData({ restart: true, reheat: true });
 
       return this.getAutoLayoutEnabled();
-    },
-
-    /**
-     * Set or clear the precedence filter at runtime.
-     * Handles clearing old flags, applying new ones, re-laying out, and re-rendering.
-     * @param {string|null} str — precedence DSL string, or null/empty to clear
-     */
-    setPrecedence(str) {
-      // 1. Undo any previous precedence hiding
-      clearPrecedence(this.nodes, this.edges);
-
-      // 2. Store new value
-      this.options.precedence = str || null;
-
-      // 3. Apply new precedence (if any)
-      this._applyPrecedence();
-
-      // 4. Re-layout if autoLayout is on (now with updated visibility)
-      if (this.options.autoLayout) {
-        this._applyAutoLayout();
-      }
-
-      // 5. Re-render everything
-      this._initNodeLookup();
-      this._renderAllNodes();
-      this._renderAllEdges();
-      this._minimapComponent?.update();
-      this._controlsComponent?.update();
-      this._refreshForceGraphData({ restart: true, reheat: true });
     },
 
     // ──────────────────────────────────────────
@@ -2083,10 +2040,6 @@ function normalizeEdge(edge) {
 }
 
 // ─── Static helpers on default export ────────────────────────
-// So consumers can do: AlpineFlow.parsePrecedence(...) with just the default import
-AlpineFlow.parsePrecedence = parsePrecedence;
-AlpineFlow.applyPrecedence = applyPrecedence;
-AlpineFlow.clearPrecedence = clearPrecedence;
 AlpineFlow.layoutNodes = layoutNodes;
 AlpineFlow.LAYOUT_DEFAULTS = LAYOUT_DEFAULTS;
 AlpineFlow.createForceSimulation = createForceSimulation;
@@ -2115,6 +2068,4 @@ export {
   layoutNodes, LAYOUT_DEFAULTS,
   // Force
   createForceSimulation, FORCE_DEFAULTS,
-  // Precedence
-  parsePrecedence, applyPrecedence, clearPrecedence,
 };
