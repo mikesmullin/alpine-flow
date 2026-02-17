@@ -1685,8 +1685,43 @@ export default function AlpineFlow(Alpine) {
     fitView(options = {}) {
       if (this.nodes.length === 0) return;
 
-      const bounds = getNodesBounds(Array.from(this._nodeLookup.values()));
-      if (bounds.width === 0 && bounds.height === 0) return;
+      const visibleNodes = Array.from(this._nodeLookup.values()).filter((node) => !node.hidden);
+      if (visibleNodes.length === 0) return;
+
+      let bounds = getNodesBounds(visibleNodes);
+
+      if (bounds.width === 0 && bounds.height === 0) {
+        const FALLBACK_NODE_WIDTH = 120;
+        const FALLBACK_NODE_HEIGHT = 56;
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        for (const node of visibleNodes) {
+          const pos = node.internals?.positionAbsolute ?? node.position;
+          if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
+
+          const dims = getNodeDimensions(node);
+          const width = Number.isFinite(dims?.width) && dims.width > 0 ? dims.width : FALLBACK_NODE_WIDTH;
+          const height = Number.isFinite(dims?.height) && dims.height > 0 ? dims.height : FALLBACK_NODE_HEIGHT;
+
+          minX = Math.min(minX, pos.x);
+          minY = Math.min(minY, pos.y);
+          maxX = Math.max(maxX, pos.x + width);
+          maxY = Math.max(maxY, pos.y + height);
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) return;
+
+        bounds = {
+          x: minX,
+          y: minY,
+          width: Math.max(1, maxX - minX),
+          height: Math.max(1, maxY - minY)
+        };
+      }
 
       const padding = options.padding ?? this.options.fitViewPadding ?? DEFAULTS.fitViewPadding;
       const vp = getTransformForBounds(
