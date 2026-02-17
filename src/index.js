@@ -257,10 +257,7 @@ export default function AlpineFlow(Alpine) {
       }, this._containerEl);
 
       // Pane (click/selection target)
-      const pane = createElement('div', {
-        className: 'alpine-flow__pane',
-        style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' },
-      }, zoomPane);
+      const pane = zoomPane;
 
       // Viewport (CSS transform container)
       this._viewportEl = createElement('div', {
