@@ -512,7 +512,9 @@ export default function AlpineFlow(Alpine) {
       const opts = typeof this.options.autoLayout === 'object' ? this.options.autoLayout : {};
 
       // Only layout visible nodes/edges (precedence may have hidden some)
-      const visibleNodes = this.nodes.filter((n) => !n.hidden);
+      const visibleNodes = this.nodes
+        .filter((n) => !n.hidden)
+        .map((n) => ({ ...n, _needsLayout: true }));
       const visibleEdges = this.edges.filter((e) => !e.hidden);
       const laid = layoutNodes(visibleNodes, visibleEdges, opts);
 
