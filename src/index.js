@@ -144,6 +144,7 @@ export default function AlpineFlow(Alpine) {
     _ambientPhase: 0,
     _ambientIntervalId: null,
     _persistentPinnedNodeIds: new Set(),
+    _autoLayoutOptionsCache: null,
 
     // User callbacks
     _onConnect: config.onConnect || null,
@@ -172,6 +173,13 @@ export default function AlpineFlow(Alpine) {
 
       this._buildDOM();
       this._updateContainerDimensions();
+
+      if (this.options.autoLayout) {
+        this._autoLayoutOptionsCache = this.options.autoLayout === true
+          ? true
+          : { ...this.options.autoLayout };
+      }
+
       this._applyPrecedence();
       this._applyAutoLayout();
       this._initNodeLookup();
@@ -388,6 +396,8 @@ export default function AlpineFlow(Alpine) {
         toJSON: () => this.toJSON(),
         fromJSON: (json) => this.fromJSON(json),
         layoutNodes: (opts) => this.layoutNodesAndRender(opts),
+        setAutoLayoutEnabled: (enabled) => this.setAutoLayoutEnabled(enabled),
+        getAutoLayoutEnabled: () => this.getAutoLayoutEnabled(),
         setPrecedence: (str) => this.setPrecedence(str),
         startForce: () => this.startForce(),
         stopForce: () => this.stopForce(),
@@ -414,6 +424,55 @@ export default function AlpineFlow(Alpine) {
       const rules = parsePrecedence(this.options.precedence);
       if (!rules) return;
       applyPrecedence(this.nodes, this.edges, rules);
+    },
+
+    getAutoLayoutEnabled() {
+      return !!this.options.autoLayout;
+    },
+
+    setAutoLayoutEnabled(enabled) {
+      const shouldEnable = enabled === true;
+      const isEnabled = this.getAutoLayoutEnabled();
+
+      if (shouldEnable === isEnabled) {
+        return isEnabled;
+      }
+
+      if (shouldEnable) {
+        if (!this.options.autoLayout) {
+          if (this._autoLayoutOptionsCache === true) {
+            this.options.autoLayout = true;
+          } else if (this._autoLayoutOptionsCache && typeof this._autoLayoutOptionsCache === 'object') {
+            this.options.autoLayout = { ...this._autoLayoutOptionsCache };
+          } else {
+            this.options.autoLayout = true;
+          }
+        }
+
+        // Run auto layout exactly once on OFF -> ON transition, forcing all
+        // visible nodes through layout (not only nodes marked as needing layout).
+        const layoutOpts = this.options.autoLayout && typeof this.options.autoLayout === 'object'
+          ? { ...this.options.autoLayout }
+          : {};
+        this.layoutNodesAndRender({ ...layoutOpts, force: true });
+        return this.getAutoLayoutEnabled();
+      } else {
+        if (this.options.autoLayout) {
+          this._autoLayoutOptionsCache = this.options.autoLayout === true
+            ? true
+            : { ...this.options.autoLayout };
+        }
+        this.options.autoLayout = false;
+      }
+
+      this._initNodeLookup();
+      this._renderAllNodes();
+      this._renderAllEdges();
+      this._minimapComponent?.update();
+      this._controlsComponent?.update();
+      this._refreshForceGraphData({ restart: true, reheat: true });
+
+      return this.getAutoLayoutEnabled();
     },
 
     /**
